@@ -16,8 +16,8 @@ import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
 import {
-  generateRetentionScript,
-  tagScriptForElevenLabs,
+  buildElevenLabsTagPrompt,
+  buildRetentionScriptPrompt,
 } from "./services/scriptGenerator.js";
 import type { GeneratedScript, Storyboard, TranscriptionResult } from "./types/pipeline.js";
 
@@ -182,31 +182,21 @@ app.post("/api/projects/select", async (req, res) => {
   }
 });
 
-app.post("/api/script/generate", async (req, res) => {
+app.post("/api/script/generate", (req, res) => {
   const { topic, durationSeconds, tone, customInstructions } = req.body ?? {};
   if (!topic || typeof topic !== "string" || !topic.trim()) {
-    res.status(400).json({ error: "Escribe un tema o idea para generar el guion." });
+    res.status(400).json({ error: "Escribe un tema o idea para armar el prompt." });
     return;
   }
 
-  try {
-    const { meta, paths } = await getActiveProject();
-    const generated = await generateRetentionScript(
-      {
-        topic: topic.trim(),
-        durationSeconds: Number(durationSeconds) || 45,
-        tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
-        customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
-      },
-      paths,
-    );
-    await touchProject(meta.slug);
-    res.json({ ok: true, generated });
-  } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : "Error al generar el guion con Gemini.",
-    });
-  }
+  const prompt = buildRetentionScriptPrompt({
+    topic: topic.trim(),
+    durationSeconds: Number(durationSeconds) || 45,
+    tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
+    customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
+  });
+
+  res.json({ ok: true, prompt });
 });
 
 app.post("/api/script/elevenlabs", async (req, res) => {
@@ -217,17 +207,15 @@ app.post("/api/script/elevenlabs", async (req, res) => {
 
     if (regenerate) {
       if (!fs.existsSync(paths.script)) {
-        res.status(400).json({ error: "Primero escribe o genera un guion limpio." });
+        res.status(400).json({ error: "Primero escribe o pega un guion limpio." });
         return;
       }
       const cleanScript = await fsp.readFile(paths.script, "utf-8");
-      const tagged = await tagScriptForElevenLabs(
+      const prompt = buildElevenLabsTagPrompt(
         cleanScript,
         typeof tone === "string" ? tone : undefined,
-        paths.scriptElevenLabs,
       );
-      await touchProject(meta.slug);
-      res.json({ ok: true, content: tagged });
+      res.json({ ok: true, prompt });
       return;
     }
 

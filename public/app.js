@@ -391,9 +391,19 @@ function setupScriptEditor() {
   });
 }
 
+function showGeneratedPrompt(promptText) {
+  const wrap = $("#prompt-output-wrap");
+  const area = $("#generated-prompt-textarea");
+  area.value = promptText;
+  wrap.classList.remove("hidden");
+  wrap.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
 function setupScriptGenerator() {
   const form = $("#script-generator-form");
   const btn = $("#btn-generate-script");
+  const copyPromptBtn = $("#btn-copy-prompt");
+  const closePromptBtn = $("#btn-close-prompt");
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -405,7 +415,7 @@ function setupScriptGenerator() {
     const customInstructions = $("#gen-custom").value.trim();
 
     btn.disabled = true;
-    btn.textContent = "Generando...";
+    btn.textContent = "Armando...";
 
     try {
       const res = await fetch("/api/script/generate", {
@@ -415,21 +425,27 @@ function setupScriptGenerator() {
       });
       const json = await res.json();
       if (!res.ok) {
-        showToast(json.error || "Error al generar el guion", true);
+        showToast(json.error || "Error al armar el prompt", true);
         return;
       }
 
-      scriptDirty = false;
-      elevenLabsDirty = false;
-      $("#script-textarea").value = json.generated.clean_script;
-      $("#elevenlabs-textarea").value = json.generated.elevenlabs_script;
-      updateScriptStats(json.generated.clean_script);
-      showToast("Guion y formato ElevenLabs v3/v4 generados");
-      await fetchStatus();
+      showGeneratedPrompt(json.prompt);
+      showToast("Prompt listo para copiar y pegar en tu agente IA");
     } finally {
       btn.disabled = false;
-      btn.textContent = "Generar Guion";
+      btn.textContent = "Generar Prompt";
     }
+  });
+
+  copyPromptBtn.addEventListener("click", async () => {
+    const text = $("#generated-prompt-textarea").value;
+    if (!text.trim()) return;
+    await navigator.clipboard.writeText(text);
+    showToast("Prompt copiado al portapapeles");
+  });
+
+  closePromptBtn.addEventListener("click", () => {
+    $("#prompt-output-wrap").classList.add("hidden");
   });
 }
 
@@ -459,7 +475,7 @@ function setupElevenLabsEditor() {
       await saveScriptText($("#script-textarea").value);
     }
     retagBtn.disabled = true;
-    retagBtn.textContent = "Etiquetando...";
+    retagBtn.textContent = "Armando...";
     try {
       const tone = $("#gen-tone").value;
       const res = await fetch("/api/script/elevenlabs", {
@@ -469,16 +485,14 @@ function setupElevenLabsEditor() {
       });
       const json = await res.json();
       if (!res.ok) {
-        showToast(json.error || "No se pudo etiquetar el guion", true);
+        showToast(json.error || "No se pudo armar el prompt", true);
         return;
       }
-      elevenLabsDirty = false;
-      elTextarea.value = json.content;
-      showToast("Etiquetas ElevenLabs v3/v4 generadas");
-      await fetchStatus();
+      showGeneratedPrompt(json.prompt);
+      showToast("Prompt ElevenLabs listo para copiar");
     } finally {
       retagBtn.disabled = false;
-      retagBtn.textContent = "Etiquetar desde guion";
+      retagBtn.textContent = "Prompt ElevenLabs";
     }
   });
 

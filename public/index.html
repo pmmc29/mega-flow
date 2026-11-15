@@ -89,17 +89,18 @@
           <div class="readiness-pill" id="readiness-summary">Verificando archivos...</div>
         </div>
 
-        <!-- Generador de Guion con Gemini -->
+        <!-- Generador de Prompt para Guion (Sin API) -->
         <article class="card generator-card" id="card-generator">
           <div class="card-head">
             <div>
               <div class="card-title-row">
-                <h3>Generador de Guion con Gemini</h3>
-                <span class="badge badge-recommended">Retención + ElevenLabs v3/v4</span>
+                <h3>Generador de Prompt para Guion</h3>
+                <span class="badge badge-recommended">Sin API · Copiar y pegar</span>
               </div>
               <p class="card-help">
-                Crea automáticamente un guion optimizado para retención máxima (Hook → Tensión →
-                Micro-beats → Clímax → Loop) junto con su versión etiquetada para ElevenLabs.
+                Arma el prompt optimizado para retención máxima (Hook → Tensión → Micro-beats →
+                Clímax → Loop) y formato ElevenLabs v3/v4. Cópialo en tu agente IA externo y pega
+                el resultado abajo.
               </p>
             </div>
           </div>
@@ -145,10 +146,31 @@
 
             <div class="gen-submit">
               <button type="submit" class="btn btn-primary" id="btn-generate-script">
-                Generar Guion
+                Generar Prompt
               </button>
             </div>
           </form>
+
+          <div class="prompt-output-wrap hidden" id="prompt-output-wrap">
+            <div class="prompt-output-header">
+              <span class="meta-text">Prompt listo para pegar en ChatGPT / Claude / Gemini Web</span>
+              <div class="editor-actions">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-copy-prompt">
+                  Copiar Prompt
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-close-prompt">
+                  Ocultar
+                </button>
+              </div>
+            </div>
+            <textarea
+              id="generated-prompt-textarea"
+              rows="9"
+              readonly
+              class="mono-textarea"
+              aria-label="Prompt generado para copiar"
+            ></textarea>
+          </div>
         </article>
 
         <div class="input-grid">
@@ -200,7 +222,7 @@
                 id="elevenlabs-textarea"
                 rows="8"
                 class="mono-textarea"
-                placeholder="Genera el guion o haz clic en 'Etiquetar desde guion' para obtener las etiquetas [curious], [whispers], [laughs]..."
+                placeholder="Pega aquí la versión con etiquetas [curious], [whispers], [laughs] generada por tu agente IA..."
                 aria-label="Guion con etiquetas de audio para ElevenLabs"
               ></textarea>
               <div class="editor-meta">
@@ -209,7 +231,7 @@
                 </span>
                 <div class="editor-actions">
                   <button type="button" class="btn btn-ghost btn-sm" id="btn-retag-elevenlabs">
-                    Etiquetar desde guion
+                    Prompt ElevenLabs
                   </button>
                   <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-elevenlabs">
                     Copiar
