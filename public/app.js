@@ -2,8 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 let pollTimer = null;
-let scriptDirty = false;
-let elevenLabsDirty = false;
+let bundleDirty = false;
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -226,10 +225,16 @@ async function fetchStatus() {
     }
   }
 
-  // Script
+  // Script & 3-in-1 bundle
   const scriptMeta = data.files.script;
+  const elevenMeta = data.files.scriptElevenLabs;
+  const remotionMeta = data.files.remotionStyle;
   const scriptState = $("#state-script");
-  if (scriptMeta.exists && scriptMeta.content.trim().length > 0) {
+  const hasCleanScript = Boolean(scriptMeta?.exists && scriptMeta.content.trim().length > 0);
+  const hasEleven = Boolean(elevenMeta?.exists && elevenMeta.content.trim().length > 0);
+  const hasRemotion = Boolean(remotionMeta?.exists && remotionMeta.content.trim().length > 0);
+
+  if (hasCleanScript) {
     scriptState.textContent = "Guardado";
     scriptState.classList.add("is-ready");
   } else {
@@ -237,26 +242,46 @@ async function fetchStatus() {
     scriptState.classList.remove("is-ready");
   }
 
-  if (!scriptDirty) {
-    const textarea = $("#script-textarea");
-    textarea.value = scriptMeta.content || "";
-    updateScriptStats(textarea.value);
+  if (!bundleDirty) {
+    const parts = [];
+    if (hasCleanScript) {
+      parts.push(`=== GUION_LIMPIO ===\n${scriptMeta.content.trim()}`);
+    }
+    if (hasEleven) {
+      parts.push(`=== ELEVENLABS ===\n${elevenMeta.content.trim()}`);
+    }
+    if (hasRemotion) {
+      parts.push(`=== REMOTION_JSON ===\n${remotionMeta.content.trim()}`);
+    }
+    const bundleArea = $("#bundle-textarea");
+    if (bundleArea) {
+      bundleArea.value = parts.join("\n\n");
+    }
   }
 
-  const elevenMeta = data.files.scriptElevenLabs;
-  if (!elevenLabsDirty && elevenMeta) {
-    $("#elevenlabs-textarea").value = elevenMeta.content || "";
+  const bundleStatusEl = $("#bundle-status");
+  if (bundleStatusEl && !bundleDirty) {
+    if (hasCleanScript || hasEleven || hasRemotion) {
+      bundleStatusEl.textContent = [
+        `Guion ${hasCleanScript ? "✓" : "—"}`,
+        `ElevenLabs ${hasEleven ? "✓" : "—"}`,
+        `Remotion ${hasRemotion ? "✓" : "preset"}`,
+      ].join(" · ");
+    } else {
+      bundleStatusEl.textContent = "Pendiente de importar";
+    }
   }
 
-  const remotionMeta = data.files.remotionStyle;
-  if (!remotionStyleDirty && remotionMeta) {
-    $("#remotion-style-textarea").value = remotionMeta.content || "";
-  }
-  const remotionStatusEl = $("#remotion-style-status");
-  if (remotionStatusEl && remotionMeta) {
-    remotionStatusEl.textContent = remotionMeta.exists
-      ? "Guardado en workspace/remotion_style.json"
-      : "Opcional: si está vacío, Remotion usa el preset del tono seleccionado.";
+  const voBox = $("#vo-elevenlabs-box");
+  const voText = $("#vo-elevenlabs-textarea");
+  if (voBox && voText) {
+    if (hasEleven) {
+      voBox.classList.remove("hidden");
+      voText.value = elevenMeta.content.trim();
+    } else {
+      voBox.classList.add("hidden");
+      voText.value = "";
+    }
   }
 
   // Assets
@@ -326,6 +351,19 @@ async function fetchStatus() {
   renderOutputs(data.outputs);
 }
 
+function resetAssetPreviewCache(assetKey) {
+  const img = $(`#img-${assetKey}`);
+  if (img) {
+    img.dataset.loadedAt = "";
+    img.removeAttribute("src");
+  }
+  const audio = $(`#audio-${assetKey}`);
+  if (audio) {
+    audio.dataset.loadedAt = "";
+    audio.removeAttribute("src");
+  }
+}
+
 async function uploadAsset(assetKey, file) {
   const form = new FormData();
   form.append("file", file);
@@ -335,23 +373,8 @@ async function uploadAsset(assetKey, file) {
     showToast(json.error || "Error al subir archivo", true);
     return;
   }
+  resetAssetPreviewCache(assetKey);
   showToast(`Archivo guardado (${formatBytes(json.size)})`);
-  await fetchStatus();
-}
-
-async function saveScriptText(content) {
-  const res = await fetch("/api/upload/script", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content }),
-  });
-  const json = await res.json();
-  if (!res.ok) {
-    showToast(json.error || "Error al guardar guion", true);
-    return;
-  }
-  scriptDirty = false;
-  showToast("Guion guardado en input/script.txt");
   await fetchStatus();
 }
 
@@ -397,35 +420,11 @@ function setupDropzones() {
       const assetKey = btn.dataset.delete;
       const res = await fetch(`/api/upload/${assetKey}`, { method: "DELETE" });
       if (res.ok) {
+        resetAssetPreviewCache(assetKey);
         showToast("Archivo eliminado");
         await fetchStatus();
       }
     });
-  });
-}
-
-function setupScriptEditor() {
-  const textarea = $("#script-textarea");
-  const fileInput = $("#file-script");
-  const saveBtn = $("#btn-save-script");
-
-  textarea.addEventListener("input", () => {
-    scriptDirty = true;
-    updateScriptStats(textarea.value);
-  });
-
-  saveBtn.addEventListener("click", () => {
-    void saveScriptText(textarea.value);
-  });
-
-  fileInput.addEventListener("change", async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    textarea.value = text;
-    updateScriptStats(text);
-    await saveScriptText(text);
-    fileInput.value = "";
   });
 }
 
@@ -499,174 +498,82 @@ function setupScriptGenerator() {
   });
 }
 
-function setupElevenLabsEditor() {
-  const elTextarea = $("#elevenlabs-textarea");
-  const retagBtn = $("#btn-retag-elevenlabs");
-  const copyBtn = $("#btn-copy-elevenlabs");
-  const saveBtn = $("#btn-save-elevenlabs");
+async function saveUnifiedBundle() {
+  const bundleTextarea = $("#bundle-textarea");
+  const bundleStatusEl = $("#bundle-status");
+  const raw = bundleTextarea ? bundleTextarea.value : "";
+  if (!raw.trim()) {
+    showToast("Pega primero el bloque completo generado por tu agente IA", true);
+    return false;
+  }
 
-  elTextarea.addEventListener("input", () => {
-    elevenLabsDirty = true;
+  const res = await fetch("/api/script/import-bundle", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: raw }),
   });
-
-  $$("[data-script-tab]").forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const target = tab.dataset.scriptTab;
-      $$("[data-script-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
-      $("#script-panel-clean").classList.toggle("hidden", target !== "clean");
-      $("#script-panel-elevenlabs").classList.toggle("hidden", target !== "elevenlabs");
-      $("#script-panel-remotion").classList.toggle("hidden", target !== "remotion");
-      $("#script-panel-bundle").classList.toggle("hidden", target !== "bundle");
-      const labelMap = {
-        clean: "input/script.txt",
-        elevenlabs: "workspace/script_elevenlabs.txt",
-        remotion: "workspace/remotion_style.json",
-        bundle: "Guion + ElevenLabs + Remotion",
-      };
-      $("#script-file-label").textContent = labelMap[target] || "input/script.txt";
-    });
-  });
-
-  const remotionTextarea = $("#remotion-style-textarea");
-  const saveRemotionBtn = $("#btn-save-remotion-style");
-  const remotionStatusEl = $("#remotion-style-status");
-
-  remotionTextarea.addEventListener("input", () => {
-    remotionStyleDirty = true;
-    if (remotionStatusEl) {
-      remotionStatusEl.textContent = "Cambios sin guardar...";
+  const json = await res.json();
+  if (!res.ok) {
+    showToast(json.error || "No se pudo importar el bloque", true);
+    if (bundleStatusEl) {
+      bundleStatusEl.textContent = json.error || "Error al parsear el bloque.";
     }
-  });
+    return false;
+  }
 
-  saveRemotionBtn.addEventListener("click", async () => {
-    saveRemotionBtn.disabled = true;
-    try {
-      const res = await fetch("/api/script/remotion-style", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: remotionTextarea.value }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        showToast(json.error || "Error al guardar el estilo Remotion", true);
-        return;
-      }
-      remotionStyleDirty = false;
-      remotionTextarea.value = json.content || "";
-      const msg = json.content
-        ? "Estilo Remotion guardado en workspace/remotion_style.json"
-        : "Estilo personalizado limpiado (se usará el preset del tono)";
-      if (remotionStatusEl) {
-        remotionStatusEl.textContent = msg;
-      }
-      showToast(msg);
-      await fetchStatus();
-    } finally {
-      saveRemotionBtn.disabled = false;
-    }
-  });
+  bundleDirty = false;
+  if (bundleStatusEl) {
+    bundleStatusEl.textContent = "Guion ✓ · ElevenLabs ✓ · Remotion ✓";
+  }
+  showToast("Guion limpio, ElevenLabs y Estilo Remotion guardados");
+  await fetchStatus();
+  return true;
+}
 
+function setupBundleEditor() {
   const bundleTextarea = $("#bundle-textarea");
   const importBundleBtn = $("#btn-import-bundle");
   const bundleStatusEl = $("#bundle-status");
+  const copyVoElevenBtn = $("#btn-copy-vo-elevenlabs");
+  const voElevenTextarea = $("#vo-elevenlabs-textarea");
+
+  bundleTextarea.addEventListener("input", () => {
+    bundleDirty = true;
+    if (bundleStatusEl) {
+      bundleStatusEl.textContent = "Cambios sin guardar...";
+    }
+  });
 
   importBundleBtn.addEventListener("click", async () => {
-    const raw = bundleTextarea.value;
-    if (!raw.trim()) {
-      showToast("Pega primero el bloque completo generado por tu agente IA", true);
-      return;
-    }
-
     importBundleBtn.disabled = true;
     importBundleBtn.textContent = "Guardando...";
     try {
-      const res = await fetch("/api/script/import-bundle", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: raw }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        showToast(json.error || "No se pudo importar el bloque", true);
-        if (bundleStatusEl) {
-          bundleStatusEl.textContent = json.error || "Error al parsear el bloque.";
-        }
-        return;
-      }
-
-      scriptDirty = false;
-      elevenLabsDirty = false;
-      remotionStyleDirty = false;
-      bundleTextarea.value = "";
-      if (bundleStatusEl) {
-        bundleStatusEl.textContent = "Importado: Guion limpio, ElevenLabs y Estilo Remotion guardados.";
-      }
-      showToast("Guion limpio, ElevenLabs y Estilo Remotion guardados");
-      await fetchStatus();
+      await saveUnifiedBundle();
     } finally {
       importBundleBtn.disabled = false;
       importBundleBtn.textContent = "Aplicar y guardar todo";
     }
   });
 
-  retagBtn.addEventListener("click", async () => {
-    if (scriptDirty) {
-      await saveScriptText($("#script-textarea").value);
-    }
-    retagBtn.disabled = true;
-    retagBtn.textContent = "Armando...";
-    try {
-      const tone = $("#gen-tone").value;
-      const res = await fetch("/api/script/elevenlabs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ regenerate: true, tone }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        showToast(json.error || "No se pudo armar el prompt", true);
+  if (copyVoElevenBtn && voElevenTextarea) {
+    copyVoElevenBtn.addEventListener("click", async () => {
+      if (!voElevenTextarea.value.trim()) {
+        showToast("No hay guion ElevenLabs para copiar", true);
         return;
       }
-      showGeneratedPrompt(json.prompt);
-      showToast("Prompt ElevenLabs listo para copiar");
-    } finally {
-      retagBtn.disabled = false;
-      retagBtn.textContent = "Prompt ElevenLabs";
-    }
-  });
-
-  copyBtn.addEventListener("click", async () => {
-    if (!elTextarea.value.trim()) {
-      showToast("No hay texto para copiar", true);
-      return;
-    }
-    await navigator.clipboard.writeText(elTextarea.value);
-    showToast("Guion ElevenLabs copiado al portapapeles");
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    const res = await fetch("/api/script/elevenlabs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: elTextarea.value }),
+      await navigator.clipboard.writeText(voElevenTextarea.value);
+      showToast("Guion ElevenLabs copiado al portapapeles");
     });
-    const json = await res.json();
-    if (!res.ok) {
-      showToast(json.error || "Error al guardar", true);
-      return;
-    }
-    elevenLabsDirty = false;
-    showToast("Formato ElevenLabs guardado");
-    await fetchStatus();
-  });
+  }
 }
 
 function setupRunner() {
   $$("[data-run]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const step = btn.dataset.run;
-      if (scriptDirty) {
-        await saveScriptText($("#script-textarea").value);
+      if (bundleDirty && $("#bundle-textarea")?.value.trim()) {
+        const ok = await saveUnifiedBundle();
+        if (!ok) return;
       }
       const res = await fetch(`/api/run/${step}`, { method: "POST" });
       const json = await res.json();
@@ -800,9 +707,8 @@ function setupProjectSwitcher() {
 
 setupProjectSwitcher();
 setupDropzones();
-setupScriptEditor();
+setupBundleEditor();
 setupScriptGenerator();
-setupElevenLabsEditor();
 setupRunner();
 setupTabs();
 void fetchStatus();

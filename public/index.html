@@ -192,112 +192,36 @@
         </article>
 
         <div class="input-grid">
-          <!-- Tarjeta 1: Guion -->
+          <!-- Tarjeta 1: Guion y Estilo (3 en 1) -->
           <article class="card card-script" id="card-script">
             <div class="card-head">
               <div>
                 <div class="card-title-row">
-                  <h3>Guion del Episodio</h3>
+                  <h3>Guion y Estilo (3 en 1)</h3>
                   <span class="badge badge-required">Requerido</span>
                 </div>
-                <code class="file-path" id="script-file-label">input/script.txt</code>
+                <code class="file-path" id="script-file-label">input/script.txt · workspace/</code>
               </div>
               <span class="file-state" id="state-script">Pendiente</span>
             </div>
 
-            <div class="tabs tabs-sm" role="tablist" aria-label="Formato del guion">
-              <button type="button" class="tab is-active" role="tab" data-script-tab="clean">
-                Guion Limpio (Escenas)
-              </button>
-              <button type="button" class="tab" role="tab" data-script-tab="elevenlabs">
-                ElevenLabs v3 / v4
-              </button>
-              <button type="button" class="tab" role="tab" data-script-tab="remotion">
-                Estilo Remotion (JSON)
-              </button>
-              <button type="button" class="tab" role="tab" data-script-tab="bundle">
-                Pegado Único (3 en 1)
-              </button>
-            </div>
+            <p class="card-help">
+              Pega en un solo bloque el resultado de tu agente IA (<code>=== GUION_LIMPIO ===</code>,
+              <code>=== ELEVENLABS ===</code> y <code>=== REMOTION_JSON ===</code>) para guardar todo
+              de una vez.
+            </p>
 
-            <div class="editor-wrap" id="script-panel-clean">
-              <textarea
-                id="script-textarea"
-                rows="8"
-                placeholder="Pega aquí tu guion, sube un .txt o usa 'Pegado Único (3 en 1)'..."
-                aria-label="Contenido del guion limpio"
-              ></textarea>
-              <div class="editor-meta">
-                <span id="script-stats">0 palabras · ~0s estimados</span>
-                <div class="editor-actions">
-                  <label class="btn btn-ghost btn-sm" for="file-script">
-                    Subir .txt
-                    <input id="file-script" type="file" accept=".txt,text/plain" hidden />
-                  </label>
-                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-script">
-                    Guardar guion
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="editor-wrap hidden" id="script-panel-elevenlabs">
-              <textarea
-                id="elevenlabs-textarea"
-                rows="8"
-                class="mono-textarea"
-                placeholder="Pega aquí la versión con etiquetas [curious], [whispers], [laughs] generada por tu agente IA..."
-                aria-label="Guion con etiquetas de audio para ElevenLabs"
-              ></textarea>
-              <div class="editor-meta">
-                <span class="meta-text" id="elevenlabs-hint">
-                  Etiquetas: [curious] [whispers] [laughs] [sighs]
-                </span>
-                <div class="editor-actions">
-                  <button type="button" class="btn btn-ghost btn-sm" id="btn-retag-elevenlabs">
-                    Prompt ElevenLabs
-                  </button>
-                  <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-elevenlabs">
-                    Copiar
-                  </button>
-                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-elevenlabs">
-                    Guardar
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="editor-wrap hidden" id="script-panel-remotion">
-              <textarea
-                id="remotion-style-textarea"
-                rows="8"
-                class="mono-textarea"
-                placeholder='{&#10;  "hook_badge": "DATO OCULTO",&#10;  "accent_color": "#FBBF24",&#10;  "caption_style": "bold_outline",&#10;  "vignette": 0.3,&#10;  "hook_shake": true,&#10;  "default_transition": "zoom_punch"&#10;}'
-                aria-label="Dirección visual de Remotion en JSON"
-              ></textarea>
-              <div class="editor-meta">
-                <span class="meta-text" id="remotion-style-status">
-                  Opcional: si está vacío, Remotion usa el preset del tono seleccionado.
-                </span>
-                <div class="editor-actions">
-                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-remotion-style">
-                    Guardar estilo
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div class="editor-wrap hidden" id="script-panel-bundle">
+            <div class="editor-wrap" id="script-panel-bundle">
               <textarea
                 id="bundle-textarea"
-                rows="8"
+                rows="10"
                 class="mono-textarea"
-                placeholder="Pega aquí el bloque completo devuelto por tu agente IA (con === GUION_LIMPIO ===, === ELEVENLABS === y === REMOTION_JSON ===)..."
+                placeholder="=== GUION_LIMPIO ===&#10;Tu guion limpio aquí...&#10;&#10;=== ELEVENLABS ===&#10;[curious] Tu guion con etiquetas...&#10;&#10;=== REMOTION_JSON ===&#10;{ &quot;hook_badge&quot;: &quot;DATO OCULTO&quot;, ... }"
                 aria-label="Pegado único de guion limpio, ElevenLabs y estilo Remotion"
               ></textarea>
               <div class="editor-meta">
                 <span class="meta-text" id="bundle-status">
-                  Separa y guarda automáticamente las 3 pestañas en un solo clic.
+                  Pendiente de importar
                 </span>
                 <div class="editor-actions">
                   <button type="button" class="btn btn-primary btn-sm" id="btn-import-bundle">
@@ -325,6 +249,22 @@
               Opcional mientras apruebas el guion y las escenas. Cuando lo subas, Whisper extraerá
               las marcas de tiempo exactas para sincronizar.
             </p>
+
+            <div class="vo-elevenlabs-box hidden" id="vo-elevenlabs-box">
+              <div class="vo-elevenlabs-head">
+                <span class="meta-text">Guion listo para ElevenLabs v3 / v4</span>
+                <button type="button" class="btn btn-secondary btn-xs" id="btn-copy-vo-elevenlabs">
+                  Copiar guion ElevenLabs
+                </button>
+              </div>
+              <textarea
+                id="vo-elevenlabs-textarea"
+                rows="4"
+                readonly
+                class="mono-textarea vo-elevenlabs-textarea"
+                aria-label="Guion con etiquetas para ElevenLabs"
+              ></textarea>
+            </div>
 
             <div class="dropzone" id="drop-voiceover" data-asset="voiceover" tabindex="0">
               <input

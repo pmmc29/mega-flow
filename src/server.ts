@@ -568,17 +568,46 @@ app.get("/media/scenes/:filename", async (req, res) => {
   if (!fs.existsSync(filePath)) return res.status(404).end();
   res.sendFile(filePath);
 });
-app.get("/media/character_ref", (_req, res) => {
-  if (!fs.existsSync(PATHS.characterRef)) return res.status(404).end();
-  res.sendFile(PATHS.characterRef);
+function detectImageMime(buf: Buffer): string {
+  if (buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return "image/png";
+  }
+  if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    buf.length >= 12 &&
+    buf.subarray(0, 4).toString("ascii") === "RIFF" &&
+    buf.subarray(8, 12).toString("ascii") === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  if (buf.length >= 4 && buf.subarray(0, 4).toString("ascii") === "GIF8") {
+    return "image/gif";
+  }
+  return "image/png";
+}
+
+async function sendImageFile(res: express.Response, filePath: string): Promise<void> {
+  if (!fs.existsSync(filePath)) {
+    res.status(404).end();
+    return;
+  }
+  const buf = await fsp.readFile(filePath);
+  res.setHeader("Content-Type", detectImageMime(buf));
+  res.setHeader("Cache-Control", "no-store");
+  res.send(buf);
+}
+
+app.get("/media/character_ref", async (_req, res) => {
+  await sendImageFile(res, PATHS.characterRef);
 });
 app.get("/media/bg_music", (_req, res) => {
   if (!fs.existsSync(PATHS.bgMusic)) return res.status(404).end();
   res.sendFile(PATHS.bgMusic);
 });
-app.get("/media/watermark", (_req, res) => {
-  if (!fs.existsSync(PATHS.watermark)) return res.status(404).end();
-  res.sendFile(PATHS.watermark);
+app.get("/media/watermark", async (_req, res) => {
+  await sendImageFile(res, PATHS.watermark);
 });
 
 app.listen(PORT, () => {

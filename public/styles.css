@@ -609,11 +609,43 @@ code {
 }
 
 .preview-box img {
+  display: block;
   width: 100%;
   max-height: 200px;
   object-fit: contain;
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
+}
+
+.vo-elevenlabs-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-hairline);
+}
+
+.vo-elevenlabs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vo-elevenlabs-textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--ink-primary);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  padding: 8px 10px;
 }
 
 .preview-footer {
