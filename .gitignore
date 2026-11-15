@@ -5,3 +5,4 @@ projects/
 workspace/scenes/*.png
 workspace/*.json
 output/*.mp4
+.mega-flow-profile/

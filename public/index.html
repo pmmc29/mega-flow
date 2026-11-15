@@ -507,6 +507,17 @@
               <span class="meta-text">Copia el prompt de cada escena en Google Flow (9:16) y sube las imágenes aquí.</span>
             </div>
             <div class="scenes-batch-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-flow-login">
+                Abrir Flow (Login)
+              </button>
+              <select id="flow-concurrency" aria-label="Escenas en paralelo" title="Escenas en paralelo">
+                <option value="3">3 en 3</option>
+                <option value="5" selected>5 en 5</option>
+                <option value="8">8 en 8</option>
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-flow-batch">
+                Generar lote en Flow
+              </button>
               <label class="btn btn-secondary btn-sm scenes-batch-label">
                 Subir varias imágenes
                 <input

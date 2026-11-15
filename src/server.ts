@@ -32,6 +32,10 @@ import {
   getAudioDurationSeconds,
 } from "./services/musicGenerator.js";
 import {
+  generateFlowBatchScenes,
+  openFlowLoginSession,
+} from "./services/flowBatchGenerator.js";
+import {
   buildElevenLabsTagPrompt,
   buildMusicPrompt,
   buildRetentionScriptPrompt,
@@ -847,6 +851,87 @@ async function saveImageAsPng(buffer: Buffer, destPath: string): Promise<void> {
     await fsp.rm(tmpDir, { recursive: true, force: true });
   }
 }
+
+app.post("/api/flow/login", async (_req, res) => {
+  if (jobState.running) {
+    res.status(409).json({ error: "Espera a que termine la ejecución actual." });
+    return;
+  }
+  try {
+    const info = await openFlowLoginSession();
+    res.json({ ok: true, ...info });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "No se pudo abrir Google Flow en el navegador.",
+    });
+  }
+});
+
+app.post("/api/scenes/generate-flow", async (req, res) => {
+  if (jobState.running) {
+    res.status(409).json({ error: "Ya hay una ejecución en curso." });
+    return;
+  }
+
+  const concurrency = Number(req.body?.concurrency) || undefined;
+  const { meta, paths } = await getActiveProject();
+  if (!fs.existsSync(paths.storyboard)) {
+    res.status(400).json({
+      error: "No existe storyboard.json. Pega y guarda primero el bloque 4 en 1.",
+    });
+    return;
+  }
+
+  jobState.running = true;
+  jobState.step = "flow-batch";
+  jobState.startedAt = new Date().toISOString();
+  jobState.finishedAt = null;
+  jobState.logs = [];
+  jobState.error = null;
+
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => {
+    appendLog(args.map(String).join(" "));
+    originalLog(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    appendLog(`ERROR: ${args.map(String).join(" ")}`);
+    originalError(...args);
+  };
+
+  void (async () => {
+    try {
+      appendLog(`[${meta.name}] Generación por lotes en Google Flow iniciada...`);
+      const summary = await generateFlowBatchScenes({
+        storyboardPath: paths.storyboard,
+        characterRefPath: PATHS.characterRef,
+        scenesDir: paths.scenesDir,
+        concurrency,
+      });
+      await touchProject(meta.slug);
+      appendLog(
+        `Lote Flow completado: ${summary.generated} generadas, ${summary.skipped} existentes, ${summary.failed.length} fallidas.`,
+      );
+      if (summary.failed.length > 0) {
+        jobState.error = `Fallaron ${summary.failed.length} escena(s): ${summary.failed
+          .map((f) => `#${f.sceneId}`)
+          .join(", ")}. Puedes reintentar el lote para generar solo las faltantes.`;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      jobState.error = msg;
+      appendLog(`Fallo en lote Flow: ${msg}`);
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+      jobState.running = false;
+      jobState.finishedAt = new Date().toISOString();
+    }
+  })();
+
+  res.json({ ok: true, started: "flow-batch" });
+});
 
 app.post("/api/scenes/:sceneId/upload", upload.single("file"), async (req, res) => {
   const sceneId = Number(req.params.sceneId);

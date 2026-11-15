@@ -1012,6 +1012,49 @@ async function uploadSingleSceneFile(sceneId, file) {
 function setupSceneUploaders() {
   const scenesGrid = $("#scenes-grid");
   const batchInput = $("#scenes-batch-input");
+  const flowLoginBtn = $("#btn-flow-login");
+  const flowBatchBtn = $("#btn-flow-batch");
+  const flowConcurrencySelect = $("#flow-concurrency");
+
+  if (flowLoginBtn) {
+    flowLoginBtn.addEventListener("click", async () => {
+      flowLoginBtn.disabled = true;
+      try {
+        const res = await fetch("/api/flow/login", { method: "POST" });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo abrir Google Flow", true);
+          return;
+        }
+        showToast("Navegador abierto en Google Flow. Inicia sesión y cierra la ventana al terminar.");
+      } finally {
+        flowLoginBtn.disabled = false;
+      }
+    });
+  }
+
+  if (flowBatchBtn) {
+    flowBatchBtn.addEventListener("click", async () => {
+      const concurrency = Number(flowConcurrencySelect?.value) || 5;
+      flowBatchBtn.disabled = true;
+      try {
+        const res = await fetch("/api/scenes/generate-flow", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ concurrency }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo iniciar la generación en lote", true);
+          return;
+        }
+        showToast(`Generando escenas en Google Flow (${concurrency} en ${concurrency})...`);
+        await fetchStatus();
+      } finally {
+        flowBatchBtn.disabled = false;
+      }
+    });
+  }
 
   if (batchInput) {
     batchInput.addEventListener("change", async () => {
