@@ -552,6 +552,14 @@ app.post("/api/music/generate-acestep", async (req, res) => {
       return;
     }
 
+    if (!fs.existsSync(paths.voiceover)) {
+      res.status(400).json({
+        error:
+          "Primero sube el audio de ElevenLabs para generar la música con la duración exacta de la locución.",
+      });
+      return;
+    }
+
     const remotionStyle = await readJsonSafe<{
       hook_badge?: string;
       vignette?: number;

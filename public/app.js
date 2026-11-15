@@ -325,9 +325,13 @@ async function fetchStatus() {
   const aceStepAvailable = Boolean(data.env?.aceStep?.available);
   const aceStepStatusEl = $("#acestep-status");
   if (aceStepStatusEl) {
-    aceStepStatusEl.textContent = aceStepAvailable
-      ? "ACE-Step 1.5: Conectado"
-      : "ACE-Step 1.5: Apagado · Google Flow disponible";
+    if (!aceStepAvailable) {
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Apagado · Google Flow disponible";
+    } else if (!hasAudio) {
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Conectado · Sube locución para generar";
+    } else {
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Conectado";
+    }
   }
 
   const btnMusicPrompt = $("#btn-music-prompt");
@@ -340,9 +344,12 @@ async function fetchStatus() {
 
   const btnGenerateAceStep = $("#btn-generate-acestep");
   if (btnGenerateAceStep) {
-    btnGenerateAceStep.disabled = !hasScript || !aceStepAvailable;
+    btnGenerateAceStep.disabled = !hasScript || !hasAudio || !aceStepAvailable;
     if (!hasScript) {
       btnGenerateAceStep.title = "Primero aplica y guarda el guion y estilo 3 en 1";
+    } else if (!hasAudio) {
+      btnGenerateAceStep.title =
+        "Primero sube el audio de ElevenLabs para igualar su duración";
     } else if (!aceStepAvailable) {
       btnGenerateAceStep.title =
         "Inicia ACE-Step 1.5 localmente con: uv run acestep-api (puerto 8001)";

@@ -159,7 +159,7 @@ export async function generateAceStepMusic(
   }
 
   console.log(`[ACE-Step] Tarea en cola: ${taskId}`);
-  const deadline = Date.now() + 3 * 60 * 1000;
+  const deadline = Date.now() + 5 * 60 * 1000;
   let filePathUrl = "";
 
   while (Date.now() < deadline) {
