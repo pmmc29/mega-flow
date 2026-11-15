@@ -180,7 +180,11 @@ async function fetchStatus() {
   if (!res.ok) return;
   const data = await res.json();
 
-  updateChip("#chip-openai", data.env.openai, "OpenAI Whisper");
+  if (data.env.transcriberProvider === "openai") {
+    updateChip("#chip-openai", data.env.openai, "OpenAI Whisper");
+  } else {
+    updateChip("#chip-openai", true, "Whisper Local (Gratis)");
+  }
   updateChip("#chip-gemini", data.env.gemini, "Gemini API");
 
   // Script

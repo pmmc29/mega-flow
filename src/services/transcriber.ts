@@ -1,26 +1,119 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import { pipeline, type AutomaticSpeechRecognitionPipeline } from "@huggingface/transformers";
+import ffmpegStatic from "ffmpeg-static";
 import OpenAI from "openai";
 import { MODELS, PATHS } from "../config/styleConfig.js";
 import type { TranscriptionResult, WordTimestamp } from "../types/pipeline.js";
 
-export async function transcribeVoiceover(
-  audioPath: string = PATHS.voiceover,
-  outputPath: string = PATHS.timestamps,
-): Promise<TranscriptionResult> {
+const SAMPLE_RATE = 16000;
+
+let cachedPipeline: Promise<AutomaticSpeechRecognitionPipeline> | null = null;
+
+function getLocalWhisperPipeline(): Promise<AutomaticSpeechRecognitionPipeline> {
+  if (!cachedPipeline) {
+    console.log(
+      `[Transcriber] Cargando modelo local Whisper (${MODELS.localWhisper})... (la primera vez descarga el modelo en caché)`,
+    );
+    cachedPipeline = pipeline("automatic-speech-recognition", MODELS.localWhisper, {
+      dtype: "q8",
+    });
+  }
+  return cachedPipeline;
+}
+
+function decodeAudioToFloat32(audioPath: string): Promise<Float32Array> {
+  const ffmpegBin = ffmpegStatic as unknown as string | null;
+  if (!ffmpegBin) {
+    throw new Error("No se encontró el binario de ffmpeg-static.");
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffmpegBin, [
+      "-i",
+      audioPath,
+      "-f",
+      "f32le",
+      "-acodec",
+      "pcm_f32le",
+      "-ac",
+      "1",
+      "-ar",
+      String(SAMPLE_RATE),
+      "pipe:1",
+    ]);
+
+    const chunks: Buffer[] = [];
+    let stderr = "";
+
+    proc.stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on("error", (err) => reject(err));
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        reject(new Error(`ffmpeg falló (código ${code}): ${stderr.slice(-400)}`));
+        return;
+      }
+      const buffer = Buffer.concat(chunks);
+      const floatArray = new Float32Array(
+        buffer.buffer,
+        buffer.byteOffset,
+        Math.floor(buffer.byteLength / 4),
+      );
+      resolve(floatArray);
+    });
+  });
+}
+
+async function transcribeWithLocalWhisper(audioPath: string): Promise<TranscriptionResult> {
+  console.log(`[Transcriber] Decodificando audio local con ffmpeg...`);
+  const audioData = await decodeAudioToFloat32(audioPath);
+  const duration = Number((audioData.length / SAMPLE_RATE).toFixed(3));
+
+  const asr = await getLocalWhisperPipeline();
+  const language = process.env.WHISPER_LANGUAGE || "spanish";
+
+  console.log(`[Transcriber] Transcribiendo localmente (${duration}s, idioma: ${language})...`);
+
+  const output = await asr(audioData, {
+    return_timestamps: "word",
+    chunk_length_s: 30,
+    stride_length_s: 5,
+    language,
+    task: "transcribe",
+  });
+
+  const singleOutput = Array.isArray(output) ? output[0] : output;
+  const rawChunks = (singleOutput as { chunks?: Array<{ text: string; timestamp: [number, number | null] }> }).chunks ?? [];
+
+  const words: WordTimestamp[] = rawChunks
+    .map((chunk) => {
+      const start = chunk.timestamp?.[0] ?? 0;
+      const end = chunk.timestamp?.[1] ?? start + 0.2;
+      return {
+        word: chunk.text.trim(),
+        start: Number(start.toFixed(3)),
+        end: Number(end.toFixed(3)),
+      };
+    })
+    .filter((w) => w.word.length > 0);
+
+  return { duration, words };
+}
+
+async function transcribeWithOpenAI(audioPath: string): Promise<TranscriptionResult> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     throw new Error("Falta la variable de entorno OPENAI_API_KEY.");
   }
 
-  if (!fs.existsSync(audioPath)) {
-    throw new Error(`No se encontró el archivo de audio en: ${audioPath}`);
-  }
-
   const openai = new OpenAI({ apiKey });
-
-  console.log(`[Transcriber] Enviando audio a Whisper (${MODELS.transcriber})...`);
+  console.log(`[Transcriber] Enviando audio a OpenAI Whisper (${MODELS.transcriber})...`);
 
   const response = await openai.audio.transcriptions.create({
     file: fs.createReadStream(audioPath),
@@ -43,16 +136,28 @@ export async function transcribeVoiceover(
         ? words[words.length - 1].end
         : 0;
 
-  const result: TranscriptionResult = {
-    duration,
-    words,
-  };
+  return { duration, words };
+}
+
+export async function transcribeVoiceover(
+  audioPath: string = PATHS.voiceover,
+  outputPath: string = PATHS.timestamps,
+): Promise<TranscriptionResult> {
+  if (!fs.existsSync(audioPath)) {
+    throw new Error(`No se encontró el archivo de audio en: ${audioPath}`);
+  }
+
+  const provider = process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local";
+  const result =
+    provider === "openai"
+      ? await transcribeWithOpenAI(audioPath)
+      : await transcribeWithLocalWhisper(audioPath);
 
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
   await fsp.writeFile(outputPath, JSON.stringify(result, null, 2), "utf-8");
 
   console.log(
-    `[Transcriber] Transcripción completada (${words.length} palabras, ${duration}s) -> ${outputPath}`,
+    `[Transcriber] Transcripción completada (${result.words.length} palabras, ${result.duration}s) -> ${outputPath}`,
   );
 
   return result;

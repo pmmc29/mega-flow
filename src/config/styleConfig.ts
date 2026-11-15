@@ -31,6 +31,7 @@ export const SAFE_ZONES = {
 } as const;
 
 export const MODELS = {
+  localWhisper: process.env.WHISPER_MODEL || "onnx-community/whisper-small",
   transcriber: "whisper-1",
   sceneDirector: process.env.GEMINI_TEXT_MODEL || "gemini-3.8-flash",
   characterImage: process.env.GEMINI_CHARACTER_IMAGE_MODEL || "gemini-3-pro-image-preview",

@@ -115,6 +115,7 @@ app.get("/api/status", async (_req, res) => {
     env: {
       openai: Boolean(process.env.OPENAI_API_KEY),
       gemini: Boolean(process.env.GEMINI_API_KEY),
+      transcriberProvider: process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local",
     },
     files: {
       script: { ...scriptMeta, content: scriptContent },
