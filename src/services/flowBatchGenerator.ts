@@ -102,123 +102,194 @@ async function findPromptInput(page: Page) {
   return null;
 }
 
-async function resolveFlowProjectUrl(context: BrowserContext): Promise<string> {
+async function ensureInFlowProject(page: Page): Promise<void> {
   const baseUrl = getGoogleFlowUrl();
-  const page = await context.newPage();
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+  await page.waitForTimeout(2500);
 
-  try {
-    await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(2500);
+  if (page.url().includes("accounts.google.com")) {
+    throw new Error(
+      "Google Flow pidió iniciar sesión. Usa primero el botón 'Abrir Flow (Login)' en la pestaña Escenas.",
+    );
+  }
 
-    if (page.url().includes("accounts.google.com")) {
-      throw new Error(
-        "Google Flow pidió iniciar sesión. Usa primero el botón 'Abrir Flow (Login)' en la pestaña Escenas.",
-      );
-    }
+  if (page.url().includes("/project/")) {
+    return;
+  }
 
-    if (page.url().includes("/project/")) {
-      return page.url();
-    }
+  const newProjectSelectors = [
+    'button:has-text("New project")',
+    'button:has-text("Nuevo proyecto")',
+    'a:has-text("New project")',
+    'a:has-text("Nuevo proyecto")',
+    'button:has-text("Create new")',
+    'button:has-text("Crear nuevo")',
+    '[data-testid*="new-project" i]',
+  ];
 
-    // Estamos en el dashboard/home de Flow: intentar crear o entrar a un proyecto
-    const newProjectSelectors = [
-      'button:has-text("New project")',
-      'button:has-text("Nuevo proyecto")',
-      'a:has-text("New project")',
-      'a:has-text("Nuevo proyecto")',
-      'button:has-text("Create new")',
-      'button:has-text("Crear nuevo")',
-      'button:has-text("New")',
-      'button:has-text("Nuevo")',
-      '[data-testid*="new-project" i]',
-      'a[href*="/project/"]',
-    ];
-
-    for (const sel of newProjectSelectors) {
-      const btn = page.locator(sel).first();
-      if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
-        console.log(`[Flow] Entrando a proyecto de Google Flow (${sel})...`);
-        await btn.click();
-        try {
-          await page.waitForURL(/\/project\//, { timeout: 15000 });
-          await page.waitForTimeout(2000);
-          return page.url();
-        } catch {
-          await page.waitForTimeout(2500);
-          if (page.url().includes("/project/")) {
-            return page.url();
-          }
-        }
+  for (const sel of newProjectSelectors) {
+    const btn = page.locator(sel).first();
+    if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+      await btn.click();
+      try {
+        await page.waitForURL(/\/project\//, { timeout: 15000 });
+        await page.waitForTimeout(2000);
+        return;
+      } catch {
+        await page.waitForTimeout(2500);
+        if (page.url().includes("/project/")) return;
       }
     }
-
-    // Si ya hay un prompt input visible aunque la URL no tenga /project/
-    const directInput = await findPromptInput(page);
-    if (directInput) {
-      return page.url();
-    }
-
-    const visibleButtons = await page.evaluate(() =>
-      Array.from(document.querySelectorAll("button, a"))
-        .map((el) => (el.textContent || "").trim())
-        .filter((t) => t.length > 0 && t.length < 40)
-        .slice(0, 12),
-    );
-    throw new Error(
-      `No se pudo entrar a un proyecto en Google Flow (URL actual: ${page.url()}). Botones visibles: ${visibleButtons.join(" | ")}. También puedes poner la URL directa de tu proyecto en GOOGLE_FLOW_URL en .env.`,
-    );
-  } finally {
-    await page.close().catch(() => {});
   }
+
+  const directInput = await findPromptInput(page);
+  if (directInput) return;
+
+  const visibleButtons = await listVisibleButtonLabels(page);
+  throw new Error(
+    `No se pudo entrar a un proyecto en Google Flow (URL: ${page.url()}). Botones: ${visibleButtons.join(" | ")}`,
+  );
+}
+
+async function listVisibleButtonLabels(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Array.from(document.querySelectorAll("button, [role='button'], [role='combobox']"))
+      .filter((el) => {
+        const rect = el.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      })
+      .map((el) => {
+        const text = (el.textContent || "").trim().replace(/\s+/g, " ");
+        const aria = el.getAttribute("aria-label") || "";
+        return aria && aria !== text ? `${text} [${aria}]`.trim() : text;
+      })
+      .filter((t) => t.length > 0 && t.length < 60)
+      .slice(0, 20),
+  );
 }
 
 async function attachCharacterReference(page: Page, characterRefPath: string): Promise<boolean> {
   if (!fs.existsSync(characterRefPath)) return false;
 
-  const fileInput = page.locator('input[type="file"]').first();
-  if ((await fileInput.count()) > 0) {
-    await fileInput.setInputFiles(characterRefPath);
-    await page.waitForTimeout(800);
+  const directInput = page.locator('input[type="file"]').first();
+  if ((await directInput.count()) > 0) {
+    await directInput.setInputFiles(characterRefPath);
+    await page.waitForTimeout(1000);
     return true;
   }
 
   const addButtons = [
-    'button[aria-label*="Add image" i]',
+    'button[aria-label*="Add" i]',
     'button[aria-label*="Upload" i]',
+    'button[aria-label*="Image" i]',
+    'button[aria-label*="Ingredient" i]',
+    'button[aria-label*="Reference" i]',
+    'button[aria-label*="Subir" i]',
+    'button[aria-label*="Imagen" i]',
     'button:has-text("Add image")',
     'button:has-text("Ingredients")',
     'button:has-text("Reference")',
+    'button:has-text("Upload")',
+    'button:has-text("Subir")',
+    'button:has-text("+")',
   ];
+
   for (const sel of addButtons) {
     const btn = page.locator(sel).first();
-    if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
-      await btn.click().catch(() => {});
-      await page.waitForTimeout(500);
-      const afterInput = page.locator('input[type="file"]').first();
-      if ((await afterInput.count()) > 0) {
-        await afterInput.setInputFiles(characterRefPath);
-        await page.waitForTimeout(800);
+    if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
+
+    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 1500 }).catch(() => null);
+    await btn.click().catch(() => {});
+    const chooser = await fileChooserPromise;
+    if (chooser) {
+      await chooser.setFiles(characterRefPath);
+      await page.waitForTimeout(1000);
+      return true;
+    }
+
+    await page.waitForTimeout(400);
+    const afterInput = page.locator('input[type="file"]').first();
+    if ((await afterInput.count()) > 0) {
+      await afterInput.setInputFiles(characterRefPath);
+      await page.waitForTimeout(1000);
+      return true;
+    }
+
+    // Si abrió un menú con opción Upload/Subir
+    const uploadItem = page
+      .locator('[role="menuitem"]:has-text("Upload"), [role="menuitem"]:has-text("Subir"), button:has-text("Upload")')
+      .first();
+    if ((await uploadItem.count()) > 0 && (await uploadItem.isVisible().catch(() => false))) {
+      const menuChooserPromise = page.waitForEvent("filechooser", { timeout: 2000 }).catch(() => null);
+      await uploadItem.click().catch(() => {});
+      const menuChooser = await menuChooserPromise;
+      if (menuChooser) {
+        await menuChooser.setFiles(characterRefPath);
+        await page.waitForTimeout(1000);
         return true;
       }
     }
   }
 
+  const labels = await listVisibleButtonLabels(page);
+  console.log(`[Flow] Botones visibles al intentar adjuntar personaje: ${labels.join(" | ")}`);
   return false;
 }
 
-async function selectVerticalAspectRatio(page: Page): Promise<void> {
-  const ratioButtons = [
+async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
+  const ratioTargets = [
     'button:has-text("9:16")',
-    'button:has-text("Portrait")',
     '[role="option"]:has-text("9:16")',
+    '[role="menuitem"]:has-text("9:16")',
+    '[role="menuitemradio"]:has-text("9:16")',
+    'button:has-text("Portrait")',
+    '[role="option"]:has-text("Portrait")',
+    '[role="menuitem"]:has-text("Portrait")',
+    'button:has-text("Vertical")',
+    '[role="option"]:has-text("Vertical")',
   ];
-  for (const sel of ratioButtons) {
-    const btn = page.locator(sel).first();
-    if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
-      await btn.click().catch(() => {});
-      return;
+
+  for (const sel of ratioTargets) {
+    const el = page.locator(sel).first();
+    if ((await el.count()) > 0 && (await el.isVisible().catch(() => false))) {
+      await el.click().catch(() => {});
+      await page.waitForTimeout(300);
+      return true;
     }
   }
+  return false;
+}
+
+async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
+  if (await clickVerticalOptionIfVisible(page)) return true;
+
+  const menuTriggers = [
+    'button:has-text("16:9")',
+    'button:has-text("Landscape")',
+    'button:has-text("Horizontal")',
+    'button[aria-label*="aspect" i]',
+    'button[aria-label*="ratio" i]',
+    'button[aria-label*="orienta" i]',
+    'button[aria-label*="settings" i]',
+    'button[aria-label*="tune" i]',
+    'button[aria-label*="config" i]',
+    'button[aria-label*="ajustes" i]',
+    '[role="combobox"]',
+  ];
+
+  for (const triggerSel of menuTriggers) {
+    const trigger = page.locator(triggerSel).first();
+    if ((await trigger.count()) === 0 || !(await trigger.isVisible().catch(() => false))) continue;
+    await trigger.click().catch(() => {});
+    await page.waitForTimeout(450);
+    if (await clickVerticalOptionIfVisible(page)) {
+      return true;
+    }
+  }
+
+  const labels = await listVisibleButtonLabels(page);
+  console.log(`[Flow] No se pudo seleccionar 9:16 automáticamente. Botones visibles: ${labels.join(" | ")}`);
+  return false;
 }
 
 async function clickGenerateButton(page: Page): Promise<boolean> {
@@ -316,7 +387,6 @@ async function saveSceneFromFlowPage(
 
 async function generateSingleFlowScene(
   context: BrowserContext,
-  projectUrl: string,
   scene: Scene,
   characterRefPath: string,
   destPath: string,
@@ -324,19 +394,12 @@ async function generateSingleFlowScene(
   const page = await context.newPage();
 
   try {
-    await page.goto(projectUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(2000);
-
-    if (page.url().includes("accounts.google.com")) {
-      throw new Error(
-        "Google Flow pidió iniciar sesión. Usa primero el botón 'Abrir Flow (Login)' en la pestaña Escenas.",
-      );
-    }
+    await ensureInFlowProject(page);
 
     const input = await findPromptInput(page);
     if (!input) {
       throw new Error(
-        "No se encontró el campo de prompt en Google Flow. Verifica que la URL esté en el generador de imágenes o que hayas iniciado sesión.",
+        "No se encontró el campo de prompt en Google Flow. Verifica que hayas iniciado sesión.",
       );
     }
 
@@ -432,9 +495,6 @@ export async function generateFlowBatchScenes(
   const failed: Array<{ sceneId: number; error: string }> = [];
 
   try {
-    const projectUrl = await resolveFlowProjectUrl(context);
-    console.log(`[Flow] Proyecto activo en Flow: ${projectUrl}`);
-
     await Promise.all(
       missingScenes.map((scene) =>
         limit(async () => {
@@ -449,7 +509,6 @@ export async function generateFlowBatchScenes(
               );
               await generateSingleFlowScene(
                 context,
-                projectUrl,
                 scene,
                 options.characterRefPath,
                 destPath,
