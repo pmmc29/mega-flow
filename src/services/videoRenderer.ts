@@ -106,6 +106,16 @@ export async function renderFinalVideo(
     const serveUrl = await bundle({
       entryPoint,
       publicDir: stagingDir,
+      webpackOverride: (currentConfiguration) => ({
+        ...currentConfiguration,
+        resolve: {
+          ...currentConfiguration.resolve,
+          extensionAlias: {
+            ".js": [".ts", ".tsx", ".js", ".jsx"],
+            ".jsx": [".tsx", ".jsx"],
+          },
+        },
+      }),
     });
 
     const inputProps: MainCompositionProps = {
