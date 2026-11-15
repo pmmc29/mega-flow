@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import ffmpegStatic from "ffmpeg-static";
 
 const DEFAULT_ACESTEP_URL = "http://127.0.0.1:8001";
 
@@ -62,6 +65,38 @@ interface QueryResultItem {
   result?: string | Array<{ file?: string; status?: number }>;
 }
 
+function convertWavToMp3(wavPath: string, mp3Path: string): Promise<void> {
+  const ffmpegBin = ffmpegStatic as unknown as string | null;
+  if (!ffmpegBin) {
+    throw new Error("No se encontró el binario de ffmpeg-static.");
+  }
+
+  return new Promise((resolve, reject) => {
+    const proc = spawn(ffmpegBin, [
+      "-y",
+      "-i",
+      wavPath,
+      "-codec:a",
+      "libmp3lame",
+      "-b:a",
+      "192k",
+      mp3Path,
+    ]);
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf-8");
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`ffmpeg falló al convertir WAV a MP3 (${code}): ${stderr}`));
+      }
+    });
+  });
+}
+
 export async function generateAceStepMusic(
   options: GenerateAceStepMusicOptions,
 ): Promise<{ size: number; taskId: string }> {
@@ -79,7 +114,7 @@ export async function generateAceStepMusic(
       prompt: options.prompt,
       lyrics: "[inst]",
       audio_duration: duration,
-      audio_format: "mp3",
+      audio_format: "wav",
       batch_size: 1,
       inference_steps: 8,
       thinking: true,
@@ -152,10 +187,19 @@ export async function generateAceStepMusic(
     throw new Error(`No se pudo descargar el audio desde ACE-Step (${audioRes.status}).`);
   }
 
-  const buffer = Buffer.from(await audioRes.arrayBuffer());
+  const wavBuffer = Buffer.from(await audioRes.arrayBuffer());
   await fsp.mkdir(path.dirname(options.outputPath), { recursive: true });
-  await fsp.writeFile(options.outputPath, buffer);
 
-  console.log(`[ACE-Step] Música guardada en ${options.outputPath} (${buffer.length} bytes)`);
-  return { size: buffer.length, taskId };
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "mega-acestep-"));
+  const tmpWav = path.join(tmpDir, "track.wav");
+  try {
+    await fsp.writeFile(tmpWav, wavBuffer);
+    await convertWavToMp3(tmpWav, options.outputPath);
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+
+  const stat = await fsp.stat(options.outputPath);
+  console.log(`[ACE-Step] Música guardada en ${options.outputPath} (${stat.size} bytes)`);
+  return { size: stat.size, taskId };
 }
