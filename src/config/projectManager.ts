@@ -10,6 +10,7 @@ export interface ProjectMeta {
   slug: string;
   name: string;
   tone?: string;
+  durationSeconds?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,6 +252,19 @@ export async function updateProjectTone(slug: string, tone: string): Promise<Pro
   const raw = await fsp.readFile(paths.metaFile, "utf-8");
   const meta = JSON.parse(raw) as ProjectMeta;
   meta.tone = tone;
+  meta.updatedAt = new Date().toISOString();
+  await fsp.writeFile(paths.metaFile, JSON.stringify(meta, null, 2), "utf-8");
+  return meta;
+}
+
+export async function updateProjectDuration(
+  slug: string,
+  durationSeconds: number,
+): Promise<ProjectMeta> {
+  const paths = getProjectPaths(slug);
+  const raw = await fsp.readFile(paths.metaFile, "utf-8");
+  const meta = JSON.parse(raw) as ProjectMeta;
+  meta.durationSeconds = Math.max(10, Math.min(600, Math.round(durationSeconds)));
   meta.updatedAt = new Date().toISOString();
   await fsp.writeFile(paths.metaFile, JSON.stringify(meta, null, 2), "utf-8");
   return meta;

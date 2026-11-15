@@ -358,10 +358,17 @@
               </div>
               <div class="vo-elevenlabs-box" id="music-prompt-box">
                 <div class="vo-elevenlabs-head">
-                  <span class="meta-text">Google Flow / MusicFX (sin API)</span>
+                  <span class="meta-text" id="acestep-status">ACE-Step 1.5 / Google Flow</span>
                   <div class="editor-actions">
                     <button type="button" class="btn btn-ghost btn-xs" id="btn-music-prompt">
                       Generar prompt
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-primary btn-xs"
+                      id="btn-generate-acestep"
+                    >
+                      Generar con ACE-Step
                     </button>
                     <button
                       type="button"
@@ -377,7 +384,7 @@
                   rows="2"
                   readonly
                   class="mono-textarea vo-elevenlabs-textarea hidden"
-                  aria-label="Prompt musical para Google Flow"
+                  aria-label="Prompt musical para Google Flow o ACE-Step"
                 ></textarea>
               </div>
               <div class="dropzone dropzone-sm" id="drop-bgMusic" data-asset="bgMusic" tabindex="0">
