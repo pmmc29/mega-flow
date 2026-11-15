@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.env
+workspace/scenes/*.png
+workspace/*.json
+output/*.mp4
