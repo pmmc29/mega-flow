@@ -5,12 +5,19 @@ import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
+import { renderFinalVideo } from "./services/videoRenderer.js";
 
-type PipelineStep = "transcribe" | "direct" | "images" | "all";
+type PipelineStep = "transcribe" | "direct" | "images" | "render" | "all";
 
 async function runPipeline(): Promise<void> {
   const stepArg = (process.argv[2] as PipelineStep | undefined) ?? "all";
   const { meta, paths } = await getActiveProject();
+
+  if (!["transcribe", "direct", "images", "render", "all"].includes(stepArg)) {
+    throw new Error(
+      `Paso desconocido: "${stepArg}". Usa: transcribe | direct | images | render | all`,
+    );
+  }
 
   console.log(`=== Mega Studio Pipeline (Proyecto: ${meta.name} [${meta.slug}]) ===`);
 
@@ -34,10 +41,16 @@ async function runPipeline(): Promise<void> {
     await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
   }
 
-  if (!["transcribe", "direct", "images", "all"].includes(stepArg)) {
-    throw new Error(
-      `Paso desconocido: "${stepArg}". Usa: transcribe | direct | images | all`,
-    );
+  if (stepArg === "render" || stepArg === "all") {
+    await renderFinalVideo({
+      storyboardPath: paths.storyboard,
+      timestampsPath: paths.timestamps,
+      scenesDir: paths.scenesDir,
+      voiceoverPath: paths.voiceover,
+      bgMusicPath: PATHS.bgMusic,
+      watermarkPath: PATHS.watermark,
+      outputPath: paths.finalVideo,
+    });
   }
 
   console.log("=== Pipeline finalizado correctamente ===");

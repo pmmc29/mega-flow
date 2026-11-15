@@ -16,6 +16,7 @@ import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
+import { renderFinalVideo } from "./services/videoRenderer.js";
 import {
   buildElevenLabsTagPrompt,
   buildRetentionScriptPrompt,
@@ -105,10 +106,11 @@ app.get("/api/status", async (_req, res) => {
     scriptElevenLabsContent = await fsp.readFile(projectPaths.scriptElevenLabs, "utf-8");
   }
 
-  const [timestamps, storyboard, scriptStructure] = await Promise.all([
+  const [timestamps, storyboard, scriptStructure, finalVideo] = await Promise.all([
     readJsonSafe<TranscriptionResult>(projectPaths.timestamps),
     readJsonSafe<Storyboard>(projectPaths.storyboard),
     readJsonSafe<GeneratedScript>(projectPaths.scriptStructure),
+    getFileMeta(projectPaths.finalVideo),
   ]);
 
   let scenes: string[] = [];
@@ -138,6 +140,7 @@ app.get("/api/status", async (_req, res) => {
       storyboard,
       scriptStructure,
       scenes,
+      finalVideo,
     },
     job: jobState,
   });
@@ -342,7 +345,7 @@ app.delete("/api/upload/:assetType", async (req, res) => {
 
 app.post("/api/run/:step", async (req, res) => {
   const step = req.params.step;
-  if (!["transcribe", "direct", "images", "all"].includes(step)) {
+  if (!["transcribe", "direct", "images", "render", "all"].includes(step)) {
     res.status(400).json({ error: "Paso inválido." });
     return;
   }
@@ -393,6 +396,17 @@ app.post("/api/run/:step", async (req, res) => {
       if (step === "images" || step === "all") {
         await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
       }
+      if (step === "render" || step === "all") {
+        await renderFinalVideo({
+          storyboardPath: paths.storyboard,
+          timestampsPath: paths.timestamps,
+          scenesDir: paths.scenesDir,
+          voiceoverPath: paths.voiceover,
+          bgMusicPath: PATHS.bgMusic,
+          watermarkPath: PATHS.watermark,
+          outputPath: paths.finalVideo,
+        });
+      }
       await touchProject(meta.slug);
       appendLog("Ejecución completada con éxito.");
     } catch (err) {
@@ -410,11 +424,16 @@ app.post("/api/run/:step", async (req, res) => {
   res.json({ ok: true, started: step });
 });
 
-// Media preview endpoints (per active project for voiceover & scenes; shared for brand assets)
+// Media preview endpoints (per active project for voiceover, scenes & final video; shared for brand assets)
 app.get("/media/voiceover", async (_req, res) => {
   const { paths } = await getActiveProject();
   if (!fs.existsSync(paths.voiceover)) return res.status(404).end();
   res.sendFile(paths.voiceover);
+});
+app.get("/media/final_video", async (_req, res) => {
+  const { paths } = await getActiveProject();
+  if (!fs.existsSync(paths.finalVideo)) return res.status(404).end();
+  res.sendFile(paths.finalVideo);
 });
 app.get("/media/scenes/:filename", async (req, res) => {
   const { paths } = await getActiveProject();

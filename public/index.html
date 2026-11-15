@@ -434,7 +434,7 @@
         <div class="card run-card">
           <div class="run-actions">
             <button type="button" class="btn btn-primary btn-lg" id="btn-run-all" data-run="all">
-              Ejecutar Pipeline Completo (1 → 3)
+              Ejecutar Pipeline Completo (1 → 4)
             </button>
             <div class="step-buttons">
               <button type="button" class="btn btn-secondary" data-run="transcribe">
@@ -445,6 +445,9 @@
               </button>
               <button type="button" class="btn btn-secondary" data-run="images">
                 3. Generar Imágenes
+              </button>
+              <button type="button" class="btn btn-secondary" data-run="render">
+                4. Renderizar Video
               </button>
             </div>
           </div>
@@ -466,7 +469,7 @@
             <span class="step-label">Paso 3</span>
             <h2 id="heading-results">Vista Previa de Resultados</h2>
             <p class="section-desc">
-              Revisa las escenas 9:16 generadas, el storyboard estructurado y los timestamps.
+              Revisa las escenas 9:16 generadas, el storyboard, los timestamps y el video final.
             </p>
           </div>
           <div class="tabs" role="tablist" aria-label="Vistas de resultados">
@@ -475,6 +478,7 @@
             </button>
             <button type="button" class="tab" role="tab" data-tab="storyboard">Storyboard</button>
             <button type="button" class="tab" role="tab" data-tab="timestamps">Timestamps</button>
+            <button type="button" class="tab" role="tab" data-tab="video">Video Final</button>
           </div>
         </div>
 
@@ -497,6 +501,27 @@
             Aún no se ha generado <code>workspace/timestamps.json</code>.
           </div>
           <div id="timestamps-content" class="hidden"></div>
+        </div>
+
+        <div class="tab-panel hidden" id="panel-video">
+          <div class="empty-state" id="empty-video">
+            Aún no se ha renderizado <code>output/final_video.mp4</code>. Presiona
+            <strong>4. Renderizar Video</strong> arriba cuando tus escenas estén listas.
+          </div>
+          <div id="video-content" class="video-preview-card card hidden">
+            <video id="final-video-player" controls playsinline preload="metadata"></video>
+            <div class="preview-footer">
+              <span id="meta-final-video" class="meta-text"></span>
+              <a
+                id="btn-download-video"
+                class="btn btn-primary btn-sm"
+                href="/media/final_video"
+                download="final_video.mp4"
+              >
+                Descargar MP4
+              </a>
+            </div>
+          </div>
         </div>
       </section>
     </main>

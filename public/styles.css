@@ -946,6 +946,18 @@ code {
   margin-left: 4px;
 }
 
+.video-preview-card {
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.video-preview-card video {
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  border-radius: var(--radius-md);
+  background: #000;
+}
+
 /* Toast */
 .toast-region {
   position: fixed;

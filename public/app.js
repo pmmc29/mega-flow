@@ -173,6 +173,24 @@ function renderOutputs(outputs) {
       </div>
     `;
   }
+
+  // Video Final tab
+  const finalVideo = outputs.finalVideo;
+  const emptyVideo = $("#empty-video");
+  const videoContent = $("#video-content");
+  const videoPlayer = $("#final-video-player");
+  if (!finalVideo || !finalVideo.exists) {
+    emptyVideo.classList.remove("hidden");
+    videoContent.classList.add("hidden");
+  } else {
+    emptyVideo.classList.add("hidden");
+    videoContent.classList.remove("hidden");
+    $("#meta-final-video").textContent = formatBytes(finalVideo.size);
+    if (videoPlayer.dataset.loadedAt !== finalVideo.updatedAt) {
+      videoPlayer.src = `/media/final_video?t=${encodeURIComponent(finalVideo.updatedAt || Date.now())}`;
+      videoPlayer.dataset.loadedAt = finalVideo.updatedAt || "";
+    }
+  }
 }
 
 async function fetchStatus() {
