@@ -269,5 +269,5 @@ app.get("/media/watermark", (_req, res) => {
 app.use("/media/scenes", express.static(PATHS.scenesDir));
 
 app.listen(PORT, () => {
-  console.log(`Mega Explains Studio disponible en http://localhost:${PORT}`);
+  console.log(`Mega Studio disponible en http://localhost:${PORT}`);
 });
