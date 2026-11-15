@@ -11,6 +11,8 @@ export const PATHS = {
   voiceover: path.join(ROOT_DIR, "input", "voiceover.mp3"),
   timestamps: path.join(ROOT_DIR, "workspace", "timestamps.json"),
   storyboard: path.join(ROOT_DIR, "workspace", "storyboard.json"),
+  scriptElevenLabs: path.join(ROOT_DIR, "workspace", "script_elevenlabs.txt"),
+  scriptStructure: path.join(ROOT_DIR, "workspace", "script_structure.json"),
   scenesDir: path.join(ROOT_DIR, "workspace", "scenes"),
   finalVideo: path.join(ROOT_DIR, "output", "final_video.mp4"),
 } as const;

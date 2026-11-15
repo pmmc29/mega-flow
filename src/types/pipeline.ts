@@ -25,3 +25,23 @@ export interface Storyboard {
   caption: string;
   scenes: Scene[];
 }
+
+export interface ScriptGenerationOptions {
+  topic: string;
+  durationSeconds: number;
+  tone: string;
+  customInstructions?: string;
+}
+
+export interface GeneratedScript {
+  title: string;
+  retention_structure: {
+    hook: string;
+    tension: string;
+    beats: string[];
+    climax: string;
+    loop_cta: string;
+  };
+  clean_script: string;
+  elevenlabs_script: string;
+}

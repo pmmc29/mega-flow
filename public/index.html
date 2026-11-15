@@ -57,6 +57,68 @@
           <div class="readiness-pill" id="readiness-summary">Verificando archivos...</div>
         </div>
 
+        <!-- Generador de Guion con Gemini -->
+        <article class="card generator-card" id="card-generator">
+          <div class="card-head">
+            <div>
+              <div class="card-title-row">
+                <h3>Generador de Guion con Gemini</h3>
+                <span class="badge badge-recommended">Retención + ElevenLabs v3/v4</span>
+              </div>
+              <p class="card-help">
+                Crea automáticamente un guion optimizado para retención máxima (Hook → Tensión →
+                Micro-beats → Clímax → Loop) junto con su versión etiquetada para ElevenLabs.
+              </p>
+            </div>
+          </div>
+
+          <form class="generator-form" id="script-generator-form">
+            <div class="gen-field gen-field-topic">
+              <label for="gen-topic">Tema o idea del video</label>
+              <input
+                id="gen-topic"
+                type="text"
+                placeholder="Ej. Por qué el café a veces te da más sueño"
+                required
+              />
+            </div>
+
+            <div class="gen-field">
+              <label for="gen-duration">Duración</label>
+              <select id="gen-duration">
+                <option value="30">~30s (70 pal.)</option>
+                <option value="45" selected>~45s (105 pal.)</option>
+                <option value="60">~60s (140 pal.)</option>
+              </select>
+            </div>
+
+            <div class="gen-field">
+              <label for="gen-tone">Tono</label>
+              <select id="gen-tone">
+                <option value="curioso y dinámico" selected>Curioso y dinámico</option>
+                <option value="misterio y urgencia">Misterio / Urgencia</option>
+                <option value="educativo cercano">Educativo cercano</option>
+                <option value="humorístico e irónico">Humorístico / Irónico</option>
+              </select>
+            </div>
+
+            <div class="gen-field gen-field-custom">
+              <label for="gen-custom">Ajustes opcionales</label>
+              <input
+                id="gen-custom"
+                type="text"
+                placeholder="Ej. Usa una analogía con videojuegos, público principiante..."
+              />
+            </div>
+
+            <div class="gen-submit">
+              <button type="submit" class="btn btn-primary" id="btn-generate-script">
+                Generar Guion
+              </button>
+            </div>
+          </form>
+        </article>
+
         <div class="input-grid">
           <!-- Tarjeta 1: Guion -->
           <article class="card card-script" id="card-script">
@@ -66,22 +128,26 @@
                   <h3>Guion del Episodio</h3>
                   <span class="badge badge-required">Requerido</span>
                 </div>
-                <code class="file-path">input/script.txt</code>
+                <code class="file-path" id="script-file-label">input/script.txt</code>
               </div>
               <span class="file-state" id="state-script">Pendiente</span>
             </div>
 
-            <p class="card-help">
-              Texto narrado completo. Gemini lo usará junto a los timestamps para dividir el video en
-              escenas de 3 a 5 segundos.
-            </p>
+            <div class="tabs tabs-sm" role="tablist" aria-label="Formato del guion">
+              <button type="button" class="tab is-active" role="tab" data-script-tab="clean">
+                Guion Limpio (Escenas)
+              </button>
+              <button type="button" class="tab" role="tab" data-script-tab="elevenlabs">
+                ElevenLabs v3 / v4
+              </button>
+            </div>
 
-            <div class="editor-wrap">
+            <div class="editor-wrap" id="script-panel-clean">
               <textarea
                 id="script-textarea"
                 rows="8"
-                placeholder="Pega aquí tu guion o arrastra un archivo .txt..."
-                aria-label="Contenido del guion"
+                placeholder="Pega aquí tu guion, sube un .txt o genéralo arriba con Gemini..."
+                aria-label="Contenido del guion limpio"
               ></textarea>
               <div class="editor-meta">
                 <span id="script-stats">0 palabras · ~0s estimados</span>
@@ -92,6 +158,32 @@
                   </label>
                   <button type="button" class="btn btn-primary btn-sm" id="btn-save-script">
                     Guardar guion
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-wrap hidden" id="script-panel-elevenlabs">
+              <textarea
+                id="elevenlabs-textarea"
+                rows="8"
+                class="mono-textarea"
+                placeholder="Genera el guion o haz clic en 'Etiquetar desde guion' para obtener las etiquetas [curious], [whispers], [laughs]..."
+                aria-label="Guion con etiquetas de audio para ElevenLabs"
+              ></textarea>
+              <div class="editor-meta">
+                <span class="meta-text" id="elevenlabs-hint">
+                  Etiquetas: [curious] [whispers] [laughs] [sighs]
+                </span>
+                <div class="editor-actions">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-retag-elevenlabs">
+                    Etiquetar desde guion
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-copy-elevenlabs">
+                    Copiar
+                  </button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-elevenlabs">
+                    Guardar
                   </button>
                 </div>
               </div>

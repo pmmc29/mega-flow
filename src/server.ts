@@ -8,7 +8,11 @@ import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
-import type { Storyboard, TranscriptionResult } from "./types/pipeline.js";
+import {
+  generateRetentionScript,
+  tagScriptForElevenLabs,
+} from "./services/scriptGenerator.js";
+import type { GeneratedScript, Storyboard, TranscriptionResult } from "./types/pipeline.js";
 
 const app = express();
 const PORT = Number(process.env.PANEL_PORT ?? 3000);
@@ -75,22 +79,30 @@ async function readJsonSafe<T>(filePath: string): Promise<T | null> {
 }
 
 app.get("/api/status", async (_req, res) => {
-  const [scriptMeta, voiceover, characterRef, bgMusic, watermark] = await Promise.all([
-    getFileMeta(PATHS.script),
-    getFileMeta(PATHS.voiceover),
-    getFileMeta(PATHS.characterRef),
-    getFileMeta(PATHS.bgMusic),
-    getFileMeta(PATHS.watermark),
-  ]);
+  const [scriptMeta, scriptElevenLabsMeta, voiceover, characterRef, bgMusic, watermark] =
+    await Promise.all([
+      getFileMeta(PATHS.script),
+      getFileMeta(PATHS.scriptElevenLabs),
+      getFileMeta(PATHS.voiceover),
+      getFileMeta(PATHS.characterRef),
+      getFileMeta(PATHS.bgMusic),
+      getFileMeta(PATHS.watermark),
+    ]);
 
   let scriptContent = "";
   if (scriptMeta.exists) {
     scriptContent = await fsp.readFile(PATHS.script, "utf-8");
   }
 
-  const [timestamps, storyboard] = await Promise.all([
+  let scriptElevenLabsContent = "";
+  if (scriptElevenLabsMeta.exists) {
+    scriptElevenLabsContent = await fsp.readFile(PATHS.scriptElevenLabs, "utf-8");
+  }
+
+  const [timestamps, storyboard, scriptStructure] = await Promise.all([
     readJsonSafe<TranscriptionResult>(PATHS.timestamps),
     readJsonSafe<Storyboard>(PATHS.storyboard),
+    readJsonSafe<GeneratedScript>(PATHS.scriptStructure),
   ]);
 
   let scenes: string[] = [];
@@ -106,6 +118,7 @@ app.get("/api/status", async (_req, res) => {
     },
     files: {
       script: { ...scriptMeta, content: scriptContent },
+      scriptElevenLabs: { ...scriptElevenLabsMeta, content: scriptElevenLabsContent },
       voiceover,
       characterRef,
       bgMusic,
@@ -114,10 +127,66 @@ app.get("/api/status", async (_req, res) => {
     outputs: {
       timestamps,
       storyboard,
+      scriptStructure,
       scenes,
     },
     job: jobState,
   });
+});
+
+app.post("/api/script/generate", async (req, res) => {
+  const { topic, durationSeconds, tone, customInstructions } = req.body ?? {};
+  if (!topic || typeof topic !== "string" || !topic.trim()) {
+    res.status(400).json({ error: "Escribe un tema o idea para generar el guion." });
+    return;
+  }
+
+  try {
+    const generated = await generateRetentionScript({
+      topic: topic.trim(),
+      durationSeconds: Number(durationSeconds) || 45,
+      tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
+      customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
+    });
+    res.json({ ok: true, generated });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al generar el guion con Gemini.",
+    });
+  }
+});
+
+app.post("/api/script/elevenlabs", async (req, res) => {
+  const { content, regenerate, tone } = req.body ?? {};
+
+  try {
+    if (regenerate) {
+      if (!fs.existsSync(PATHS.script)) {
+        res.status(400).json({ error: "Primero escribe o genera un guion en input/script.txt." });
+        return;
+      }
+      const cleanScript = await fsp.readFile(PATHS.script, "utf-8");
+      const tagged = await tagScriptForElevenLabs(
+        cleanScript,
+        typeof tone === "string" ? tone : undefined,
+      );
+      res.json({ ok: true, content: tagged });
+      return;
+    }
+
+    if (typeof content !== "string") {
+      res.status(400).json({ error: "Envía el contenido para ElevenLabs." });
+      return;
+    }
+
+    await fsp.mkdir(path.dirname(PATHS.scriptElevenLabs), { recursive: true });
+    await fsp.writeFile(PATHS.scriptElevenLabs, content, "utf-8");
+    res.json({ ok: true, content });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al procesar el formato ElevenLabs.",
+    });
+  }
 });
 
 app.post("/api/upload/script", upload.single("file"), async (req, res) => {

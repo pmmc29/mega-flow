@@ -311,6 +311,66 @@ code {
   color: var(--ink-secondary);
 }
 
+/* Script Generator */
+.generator-form {
+  display: grid;
+  grid-template-columns: 1.5fr 0.75fr 0.9fr 1.2fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 980px) {
+  .generator-form {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gen-field-topic,
+  .gen-field-custom,
+  .gen-submit {
+    grid-column: 1 / -1;
+  }
+}
+
+.gen-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gen-field label {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.gen-field input,
+.gen-field select {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-canvas);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+  color: var(--ink-primary);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.gen-field input:focus,
+.gen-field select:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-surface);
+}
+
+.tabs-sm {
+  align-self: flex-start;
+}
+
+.tabs-sm .tab {
+  padding: 5px 11px;
+  font-size: 0.8rem;
+}
+
 /* Script Editor */
 .editor-wrap {
   display: flex;
@@ -319,7 +379,7 @@ code {
   flex: 1;
 }
 
-textarea#script-textarea {
+.editor-wrap textarea {
   width: 100%;
   flex: 1;
   min-height: 170px;
@@ -335,7 +395,12 @@ textarea#script-textarea {
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
-textarea#script-textarea:focus {
+.editor-wrap textarea.mono-textarea {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+}
+
+.editor-wrap textarea:focus {
   outline: none;
   border-color: var(--accent);
   background: var(--bg-surface);

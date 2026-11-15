@@ -3,6 +3,7 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 let pollTimer = null;
 let scriptDirty = false;
+let elevenLabsDirty = false;
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -369,6 +370,123 @@ function setupScriptEditor() {
   });
 }
 
+function setupScriptGenerator() {
+  const form = $("#script-generator-form");
+  const btn = $("#btn-generate-script");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const topic = $("#gen-topic").value.trim();
+    if (!topic) return;
+
+    const durationSeconds = Number($("#gen-duration").value) || 45;
+    const tone = $("#gen-tone").value;
+    const customInstructions = $("#gen-custom").value.trim();
+
+    btn.disabled = true;
+    btn.textContent = "Generando...";
+
+    try {
+      const res = await fetch("/api/script/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, durationSeconds, tone, customInstructions }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "Error al generar el guion", true);
+        return;
+      }
+
+      scriptDirty = false;
+      elevenLabsDirty = false;
+      $("#script-textarea").value = json.generated.clean_script;
+      $("#elevenlabs-textarea").value = json.generated.elevenlabs_script;
+      updateScriptStats(json.generated.clean_script);
+      showToast("Guion y formato ElevenLabs v3/v4 generados");
+      await fetchStatus();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Generar Guion";
+    }
+  });
+}
+
+function setupElevenLabsEditor() {
+  const elTextarea = $("#elevenlabs-textarea");
+  const retagBtn = $("#btn-retag-elevenlabs");
+  const copyBtn = $("#btn-copy-elevenlabs");
+  const saveBtn = $("#btn-save-elevenlabs");
+
+  elTextarea.addEventListener("input", () => {
+    elevenLabsDirty = true;
+  });
+
+  $$("[data-script-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.scriptTab;
+      $$("[data-script-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
+      $("#script-panel-clean").classList.toggle("hidden", target !== "clean");
+      $("#script-panel-elevenlabs").classList.toggle("hidden", target !== "elevenlabs");
+      $("#script-file-label").textContent =
+        target === "clean" ? "input/script.txt" : "workspace/script_elevenlabs.txt";
+    });
+  });
+
+  retagBtn.addEventListener("click", async () => {
+    if (scriptDirty) {
+      await saveScriptText($("#script-textarea").value);
+    }
+    retagBtn.disabled = true;
+    retagBtn.textContent = "Etiquetando...";
+    try {
+      const tone = $("#gen-tone").value;
+      const res = await fetch("/api/script/elevenlabs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regenerate: true, tone }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "No se pudo etiquetar el guion", true);
+        return;
+      }
+      elevenLabsDirty = false;
+      elTextarea.value = json.content;
+      showToast("Etiquetas ElevenLabs v3/v4 generadas");
+      await fetchStatus();
+    } finally {
+      retagBtn.disabled = false;
+      retagBtn.textContent = "Etiquetar desde guion";
+    }
+  });
+
+  copyBtn.addEventListener("click", async () => {
+    if (!elTextarea.value.trim()) {
+      showToast("No hay texto para copiar", true);
+      return;
+    }
+    await navigator.clipboard.writeText(elTextarea.value);
+    showToast("Guion ElevenLabs copiado al portapapeles");
+  });
+
+  saveBtn.addEventListener("click", async () => {
+    const res = await fetch("/api/script/elevenlabs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: elTextarea.value }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      showToast(json.error || "Error al guardar", true);
+      return;
+    }
+    elevenLabsDirty = false;
+    showToast("Formato ElevenLabs guardado");
+    await fetchStatus();
+  });
+}
+
 function setupRunner() {
   $$("[data-run]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -389,10 +507,10 @@ function setupRunner() {
 }
 
 function setupTabs() {
-  $$(".tab").forEach((tab) => {
+  $$("[data-tab]").forEach((tab) => {
     tab.addEventListener("click", () => {
       const target = tab.dataset.tab;
-      $$(".tab").forEach((t) => t.classList.toggle("is-active", t === tab));
+      $$("[data-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
       $$(".tab-panel").forEach((panel) => {
         panel.classList.toggle("hidden", panel.id !== `panel-${target}`);
       });
@@ -402,6 +520,8 @@ function setupTabs() {
 
 setupDropzones();
 setupScriptEditor();
+setupScriptGenerator();
+setupElevenLabsEditor();
 setupRunner();
 setupTabs();
 void fetchStatus();
