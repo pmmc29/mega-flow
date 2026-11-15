@@ -70,6 +70,12 @@ Reglas estrictas:
 5. Escribe "image_prompt" en INGLÉS, muy descriptivo visualmente, evitando texto dentro de la imagen (a menos que sea una etiqueta mínima indispensable) y dejando espacio visual libre (aire) en el tercio inferior para los subtítulos.
 6. Asigna un "camera_motion" variado entre: "zoom_in", "zoom_out", "pan_left", "pan_right".`;
 
+function estimateDurationFromScript(scriptText: string): number {
+  const words = scriptText.trim().split(/\s+/).filter(Boolean).length;
+  // Ritmo promedio de locución: ~140 palabras por minuto (~2.33 palabras/seg)
+  return Math.max(5, Number((words / 2.33).toFixed(1)));
+}
+
 export async function generateStoryboard(
   scriptPath: string = PATHS.script,
   timestampsPath: string = PATHS.timestamps,
@@ -83,33 +89,53 @@ export async function generateStoryboard(
   if (!fs.existsSync(scriptPath)) {
     throw new Error(`No se encontró el guion en: ${scriptPath}`);
   }
-  if (!fs.existsSync(timestampsPath)) {
-    throw new Error(`No se encontraron los timestamps en: ${timestampsPath}`);
+
+  const scriptText = await fsp.readFile(scriptPath, "utf-8");
+  if (!scriptText.trim()) {
+    throw new Error("El guion en input/script.txt está vacío.");
   }
 
-  const [scriptText, timestampsRaw] = await Promise.all([
-    fsp.readFile(scriptPath, "utf-8"),
-    fsp.readFile(timestampsPath, "utf-8"),
-  ]);
+  let timestamps: TranscriptionResult | null = null;
+  if (fs.existsSync(timestampsPath)) {
+    const timestampsRaw = await fsp.readFile(timestampsPath, "utf-8");
+    timestamps = JSON.parse(timestampsRaw) as TranscriptionResult;
+  }
 
-  const timestamps = JSON.parse(timestampsRaw) as TranscriptionResult;
+  const targetDuration = timestamps
+    ? timestamps.duration
+    : estimateDurationFromScript(scriptText);
+
   const ai = new GoogleGenAI({ apiKey });
 
-  console.log(`[SceneDirector] Generando storyboard con ${MODELS.sceneDirector}...`);
+  console.log(
+    `[SceneDirector] Generando storyboard con ${MODELS.sceneDirector} (${
+      timestamps ? `audio real: ${targetDuration}s` : `duración estimada sin audio: ~${targetDuration}s`
+    })...`,
+  );
 
-  const userPrompt = [
-    `Duración total del audio: ${timestamps.duration} segundos.`,
+  const userPromptParts = [
+    `Duración objetivo del video: ${targetDuration} segundos.`,
     "",
     "Guion original:",
     scriptText.trim(),
-    "",
-    "Timestamps palabra por palabra (JSON):",
-    JSON.stringify(timestamps.words),
-  ].join("\n");
+  ];
+
+  if (timestamps) {
+    userPromptParts.push(
+      "",
+      "Timestamps palabra por palabra (JSON):",
+      JSON.stringify(timestamps.words),
+    );
+  } else {
+    userPromptParts.push(
+      "",
+      "Nota: Aún no se ha grabado la locución final. Distribuye las escenas de forma natural a lo largo de la duración estimada manteniendo bloques de 3.0 a 5.0 segundos.",
+    );
+  }
 
   const response = await ai.models.generateContent({
     model: MODELS.sceneDirector,
-    contents: userPrompt,
+    contents: userPromptParts.join("\n"),
     config: {
       systemInstruction: SYSTEM_INSTRUCTION,
       responseMimeType: "application/json",

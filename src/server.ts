@@ -216,8 +216,16 @@ app.post("/api/run/:step", (req, res) => {
   void (async () => {
     try {
       appendLog(`Iniciando ejecución: ${step}`);
-      if (step === "transcribe" || step === "all") {
+      if (step === "transcribe") {
         await transcribeVoiceover();
+      } else if (step === "all") {
+        if (fs.existsSync(PATHS.voiceover)) {
+          await transcribeVoiceover();
+        } else {
+          appendLog(
+            "[Pipeline] Sin audio en input/voiceover.mp3; omitiendo transcripción y usando duración estimada del guion.",
+          );
+        }
       }
       if (step === "direct" || step === "all") {
         await generateStoryboard();

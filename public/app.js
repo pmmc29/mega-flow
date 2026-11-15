@@ -61,7 +61,8 @@ function renderAssetPreview(key, meta, mediaUrl, isImage) {
       }
     }
   } else {
-    stateEl.textContent = key === "bgMusic" || key === "watermark" ? "Opcional" : "Pendiente";
+    stateEl.textContent =
+      key === "bgMusic" || key === "watermark" || key === "voiceover" ? "Opcional" : "Pendiente";
     stateEl.classList.remove("is-ready");
     dropEl.classList.remove("hidden");
     previewEl.classList.add("hidden");
@@ -205,16 +206,17 @@ async function fetchStatus() {
   renderAssetPreview("watermark", data.files.watermark, "/media/watermark", true);
 
   // Readiness
-  const readyRequired =
-    scriptMeta.exists &&
-    scriptMeta.content.trim().length > 0 &&
-    data.files.voiceover.exists;
+  const hasScript = scriptMeta.exists && scriptMeta.content.trim().length > 0;
+  const hasAudio = data.files.voiceover.exists;
   const readinessEl = $("#readiness-summary");
-  if (readyRequired) {
-    readinessEl.textContent = "Listo para ejecutar";
+  if (hasScript && hasAudio) {
+    readinessEl.textContent = "Listo (guion + audio)";
+    readinessEl.classList.add("is-ready");
+  } else if (hasScript) {
+    readinessEl.textContent = "Listo para storyboard y escenas (sin audio)";
     readinessEl.classList.add("is-ready");
   } else {
-    readinessEl.textContent = "Falta guion o locución";
+    readinessEl.textContent = "Falta el guion";
     readinessEl.classList.remove("is-ready");
   }
 
@@ -222,7 +224,13 @@ async function fetchStatus() {
   const { job } = data;
   const runButtons = $$("[data-run]");
   runButtons.forEach((btn) => {
-    btn.disabled = job.running;
+    if (btn.dataset.run === "transcribe" && !hasAudio) {
+      btn.disabled = true;
+      btn.title = "Sube primero un archivo en Audio de Locución";
+    } else {
+      btn.disabled = job.running;
+      btn.title = "";
+    }
   });
 
   const jobStatusText = $("#job-status-text");
