@@ -204,6 +204,11 @@ async function fetchStatus() {
     updateScriptStats(textarea.value);
   }
 
+  const elevenMeta = data.files.scriptElevenLabs;
+  if (!elevenLabsDirty && elevenMeta) {
+    $("#elevenlabs-textarea").value = elevenMeta.content || "";
+  }
+
   // Assets
   renderAssetPreview("voiceover", data.files.voiceover, "/media/voiceover", false);
   renderAssetPreview("characterRef", data.files.characterRef, "/media/character_ref", true);
