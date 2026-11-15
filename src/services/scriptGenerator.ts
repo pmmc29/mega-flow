@@ -55,7 +55,8 @@ export function buildRetentionScriptPrompt(options: ScriptGenerationOptions): st
     `  "vignette": 0.35,`,
     `  "hook_shake": true,`,
     `  "default_transition": "cut | fade | slide_up | zoom_punch",`,
-    `  "scene_transitions": ["zoom_punch", "cut", "slide_up"]`,
+    `  "scene_transitions": ["zoom_punch", "cut", "slide_up"],`,
+    `  "music_volume": 0.12`,
     `}`,
     `\`\`\``,
     ``,
@@ -185,4 +186,27 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     elevenlabsScript: extracted.eleven,
     remotionStyle: formattedRemotion,
   };
+}
+
+export function buildMusicPrompt(options: {
+  topic: string;
+  durationSeconds?: number;
+  tone?: string;
+}): string {
+  const tone = (options.tone || "curioso y dinámico").trim().toLowerCase();
+  const duration = options.durationSeconds || 45;
+
+  const moodByTone: Record<string, string> = {
+    "curioso y dinámico":
+      "curious, upbeat, inquisitive marimba plucks, soft analog synth pulse, crisp minimal percussion, 112 BPM",
+    "misterio y urgencia":
+      "mysterious, tense, cinematic low synth bass, subtle ticking percussion, atmospheric pads, 100 BPM",
+    "educativo cercano":
+      "warm, friendly, lo-fi acoustic guitar, soft Rhodes electric piano, gentle groove, 95 BPM",
+    "humorístico e irónico":
+      "playful, quirky, pizzicato strings, bouncy bassline, lighthearted woodwinds, 118 BPM",
+  };
+
+  const mood = moodByTone[tone] ?? moodByTone["curioso y dinámico"];
+  return `Instrumental background track for a ~${duration}s vertical explainer video about "${options.topic.trim()}". Style: ${mood}. Clean, uncluttered mix with space for a voiceover, steady loopable rhythm, NO vocals, NO lyrics, NO harsh leads.`;
 }

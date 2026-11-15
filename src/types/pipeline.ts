@@ -57,4 +57,5 @@ export interface RemotionVisualConfig {
   hook_shake: boolean;
   default_transition: RemotionTransition;
   scene_transitions?: RemotionTransition[];
+  music_volume?: number;
 }

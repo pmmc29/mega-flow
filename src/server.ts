@@ -20,6 +20,7 @@ import { generateSceneImages } from "./services/imageGenerator.js";
 import { renderFinalVideo } from "./services/videoRenderer.js";
 import {
   buildElevenLabsTagPrompt,
+  buildMusicPrompt,
   buildRetentionScriptPrompt,
   parseUnifiedScriptBundle,
 } from "./services/scriptGenerator.js";
@@ -95,7 +96,8 @@ app.get("/api/status", async (_req, res) => {
     remotionStyleMeta,
     voiceover,
     characterRef,
-    bgMusic,
+    projectBgMusic,
+    brandBgMusic,
     watermark,
   ] = await Promise.all([
     getFileMeta(projectPaths.script),
@@ -103,9 +105,16 @@ app.get("/api/status", async (_req, res) => {
     getFileMeta(projectPaths.remotionStyle),
     getFileMeta(projectPaths.voiceover),
     getFileMeta(PATHS.characterRef),
+    getFileMeta(projectPaths.bgMusic),
     getFileMeta(PATHS.bgMusic),
     getFileMeta(PATHS.watermark),
   ]);
+
+  const bgMusic = projectBgMusic.exists
+    ? { ...projectBgMusic, scope: "project" as const }
+    : brandBgMusic.exists
+      ? { ...brandBgMusic, scope: "brand" as const }
+      : { ...projectBgMusic, scope: "none" as const };
 
   let scriptContent = "";
   if (scriptMeta.exists) {
@@ -408,14 +417,34 @@ app.post("/api/upload/script", upload.single("file"), async (req, res) => {
   }
 });
 
-async function resolveAssetPath(assetType: AssetKey): Promise<string> {
-  if (assetType === "voiceover") {
-    const { paths } = await getActiveProject();
-    return paths.voiceover;
+app.post("/api/music/prompt", async (req, res) => {
+  const { topic, durationSeconds, tone } = req.body ?? {};
+  try {
+    const { meta } = await getActiveProject();
+    const resolvedTopic =
+      typeof topic === "string" && topic.trim() ? topic.trim() : meta.name;
+    const resolvedTone =
+      typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone;
+    const prompt = buildMusicPrompt({
+      topic: resolvedTopic,
+      durationSeconds: Number(durationSeconds) || 45,
+      tone: resolvedTone,
+    });
+    res.json({ ok: true, prompt });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al armar el prompt musical.",
+    });
   }
-  const brandMap: Record<Exclude<AssetKey, "voiceover">, string> = {
+});
+
+async function resolveAssetPath(assetType: AssetKey): Promise<string> {
+  if (assetType === "voiceover" || assetType === "bgMusic") {
+    const { paths } = await getActiveProject();
+    return assetType === "voiceover" ? paths.voiceover : paths.bgMusic;
+  }
+  const brandMap: Record<"characterRef" | "watermark", string> = {
     characterRef: PATHS.characterRef,
-    bgMusic: PATHS.bgMusic,
     watermark: PATHS.watermark,
   };
   return brandMap[assetType];
@@ -437,7 +466,7 @@ app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
     const targetPath = await resolveAssetPath(assetType);
     await fsp.mkdir(path.dirname(targetPath), { recursive: true });
     await fsp.writeFile(targetPath, req.file.buffer);
-    if (assetType === "voiceover") {
+    if (assetType === "voiceover" || assetType === "bgMusic") {
       const { meta } = await getActiveProject();
       await touchProject(meta.slug);
     }
@@ -456,6 +485,16 @@ app.delete("/api/upload/:assetType", async (req, res) => {
 
   try {
     const { paths } = await getActiveProject();
+    if (assetType === "bgMusic") {
+      if (fs.existsSync(paths.bgMusic)) {
+        await fsp.unlink(paths.bgMusic);
+      } else if (fs.existsSync(PATHS.bgMusic)) {
+        await fsp.unlink(PATHS.bgMusic);
+      }
+      res.json({ ok: true });
+      return;
+    }
+
     const targetPath =
       assetType === "script" ? paths.script : await resolveAssetPath(assetType as AssetKey);
 
@@ -603,9 +642,12 @@ async function sendImageFile(res: express.Response, filePath: string): Promise<v
 app.get("/media/character_ref", async (_req, res) => {
   await sendImageFile(res, PATHS.characterRef);
 });
-app.get("/media/bg_music", (_req, res) => {
-  if (!fs.existsSync(PATHS.bgMusic)) return res.status(404).end();
-  res.sendFile(PATHS.bgMusic);
+app.get("/media/bg_music", async (_req, res) => {
+  const { paths } = await getActiveProject();
+  const target = fs.existsSync(paths.bgMusic) ? paths.bgMusic : PATHS.bgMusic;
+  if (!fs.existsSync(target)) return res.status(404).end();
+  res.setHeader("Cache-Control", "no-store");
+  res.sendFile(target);
 });
 app.get("/media/watermark", async (_req, res) => {
   await sendImageFile(res, PATHS.watermark);

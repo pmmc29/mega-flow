@@ -47,7 +47,7 @@ async function runPipeline(): Promise<void> {
       timestampsPath: paths.timestamps,
       scenesDir: paths.scenesDir,
       voiceoverPath: paths.voiceover,
-      bgMusicPath: PATHS.bgMusic,
+      bgMusicPath: fs.existsSync(paths.bgMusic) ? paths.bgMusic : PATHS.bgMusic,
       watermarkPath: PATHS.watermark,
       remotionStylePath: paths.remotionStyle,
       projectTone: meta.tone,

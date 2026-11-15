@@ -39,9 +39,12 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   hasWatermark,
   visualConfig,
 }) => {
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
   const frame = useCurrentFrame();
   const config = visualConfig ?? getTonePreset();
+  const baseMusicVolume = config.music_volume ?? 0.12;
+  const fadeOutFrames = Math.min(Math.round(1.5 * fps), Math.max(1, durationInFrames - 1));
+  const fadeStartFrame = Math.max(0, durationInFrames - fadeOutFrames);
 
   const hookBadgeFrames = Math.round(2.6 * fps);
   const showHookBadge = Boolean(config.hook_badge && frame < hookBadgeFrames);
@@ -62,7 +65,7 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
       {storyboard.scenes.map((scene, index) => {
         const startFrame = Math.round(scene.start * fps);
         const endFrame = Math.round(scene.end * fps);
-        const durationInFrames = Math.max(1, endFrame - startFrame);
+        const sceneFrames = Math.max(1, endFrame - startFrame);
         const transition =
           config.scene_transitions?.[index] ?? config.default_transition;
 
@@ -70,11 +73,11 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
           <Sequence
             key={`${scene.id}-${index}`}
             from={startFrame}
-            durationInFrames={durationInFrames}
+            durationInFrames={sceneFrames}
           >
             <AnimatedScene
               src={staticFile(sceneFilename(scene.id))}
-              durationInFrames={durationInFrames}
+              durationInFrames={sceneFrames}
               cameraMotion={scene.camera_motion}
               transition={transition}
               hookShake={index === 0 && config.hook_shake}
@@ -93,7 +96,16 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
       )}
 
       {hasBgMusic && (
-        <Audio src={staticFile("bg_music.mp3")} volume={0.12} loop />
+        <Audio
+          src={staticFile("bg_music.mp3")}
+          volume={(f) =>
+            interpolate(f, [fadeStartFrame, durationInFrames], [baseMusicVolume, 0], {
+              extrapolateLeft: "clamp",
+              extrapolateRight: "clamp",
+            })
+          }
+          loop
+        />
       )}
 
       {hasVoiceover && (

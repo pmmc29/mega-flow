@@ -352,14 +352,38 @@
               <div class="card-head">
                 <div>
                   <h3>Música de Fondo</h3>
-                  <code class="file-path">assets/brand/bg_music.mp3</code>
+                  <code class="file-path" id="bgmusic-path-label">input/bg_music.mp3 (o marca)</code>
                 </div>
                 <span class="file-state" id="state-bgMusic">Opcional</span>
+              </div>
+              <div class="vo-elevenlabs-box" id="music-prompt-box">
+                <div class="vo-elevenlabs-head">
+                  <span class="meta-text">Google Flow / MusicFX (sin API)</span>
+                  <div class="editor-actions">
+                    <button type="button" class="btn btn-ghost btn-xs" id="btn-music-prompt">
+                      Generar prompt
+                    </button>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-xs hidden"
+                      id="btn-copy-music-prompt"
+                    >
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  id="music-prompt-textarea"
+                  rows="2"
+                  readonly
+                  class="mono-textarea vo-elevenlabs-textarea hidden"
+                  aria-label="Prompt musical para Google Flow"
+                ></textarea>
               </div>
               <div class="dropzone dropzone-sm" id="drop-bgMusic" data-asset="bgMusic" tabindex="0">
                 <input id="file-bgMusic" type="file" accept=".mp3,.wav,audio/*" hidden />
                 <div class="dropzone-body">
-                  <span class="drop-title">Subir pista musical (.mp3)</span>
+                  <span class="drop-title">Subir pista para este proyecto (.mp3)</span>
                 </div>
               </div>
               <div class="preview-box hidden" id="preview-bgMusic">

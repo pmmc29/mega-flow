@@ -23,6 +23,7 @@ export interface ProjectPaths {
   outputDir: string;
   script: string;
   voiceover: string;
+  bgMusic: string;
   timestamps: string;
   storyboard: string;
   scriptElevenLabs: string;
@@ -58,6 +59,7 @@ export function getProjectPaths(slug: string): ProjectPaths {
     outputDir,
     script: path.join(inputDir, "script.txt"),
     voiceover: path.join(inputDir, "voiceover.mp3"),
+    bgMusic: path.join(inputDir, "bg_music.mp3"),
     timestamps: path.join(workspaceDir, "timestamps.json"),
     storyboard: path.join(workspaceDir, "storyboard.json"),
     scriptElevenLabs: path.join(workspaceDir, "script_elevenlabs.txt"),

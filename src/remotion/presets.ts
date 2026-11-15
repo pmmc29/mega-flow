@@ -24,6 +24,7 @@ export const TONE_PRESETS: Record<string, RemotionVisualConfig> = {
     vignette: 0.25,
     hook_shake: true,
     default_transition: "zoom_punch",
+    music_volume: 0.12,
   },
   "misterio y urgencia": {
     accent_color: "#EF4444",
@@ -31,6 +32,7 @@ export const TONE_PRESETS: Record<string, RemotionVisualConfig> = {
     vignette: 0.55,
     hook_shake: true,
     default_transition: "fade",
+    music_volume: 0.14,
   },
   "educativo cercano": {
     accent_color: "#38BDF8",
@@ -38,6 +40,7 @@ export const TONE_PRESETS: Record<string, RemotionVisualConfig> = {
     vignette: 0.15,
     hook_shake: false,
     default_transition: "slide_up",
+    music_volume: 0.11,
   },
   "humorístico e irónico": {
     accent_color: "#A3E635",
@@ -45,6 +48,7 @@ export const TONE_PRESETS: Record<string, RemotionVisualConfig> = {
     vignette: 0.2,
     hook_shake: true,
     default_transition: "cut",
+    music_volume: 0.12,
   },
 };
 
@@ -101,6 +105,11 @@ export function mergeVisualConfig(
       )
     : undefined;
 
+  const music_volume =
+    typeof custom.music_volume === "number" && Number.isFinite(custom.music_volume)
+      ? Math.max(0, Math.min(0.6, custom.music_volume))
+      : (base.music_volume ?? 0.12);
+
   return {
     ...(hook_badge ? { hook_badge } : {}),
     accent_color,
@@ -108,6 +117,7 @@ export function mergeVisualConfig(
     vignette,
     hook_shake,
     default_transition,
+    music_volume,
     ...(scene_transitions ? { scene_transitions } : {}),
   };
 }
