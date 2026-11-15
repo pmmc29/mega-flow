@@ -53,11 +53,28 @@
               <button type="button" class="btn btn-secondary btn-sm" id="btn-new-project">
                 + Nuevo Video
               </button>
+              <button type="button" class="btn btn-ghost btn-sm danger-text" id="btn-delete-project">
+                Eliminar
+              </button>
             </div>
           </div>
           <div class="project-path-wrap">
             <span class="meta-text">Carpeta aislada:</span>
             <code class="file-path" id="active-project-path">projects/proyecto-inicial/</code>
+          </div>
+        </div>
+
+        <div class="confirm-delete-bar hidden" id="delete-project-confirm" role="alert">
+          <span id="delete-project-message">
+            ¿Eliminar permanentemente este proyecto y todos sus archivos?
+          </span>
+          <div class="editor-actions">
+            <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-project">
+              Sí, eliminar
+            </button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-delete-project">
+              Cancelar
+            </button>
           </div>
         </div>
 

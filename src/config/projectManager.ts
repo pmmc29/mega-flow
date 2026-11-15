@@ -219,3 +219,24 @@ export async function touchProject(slug: string): Promise<void> {
     // Ignore if metadata doesn't exist
   }
 }
+
+export async function deleteProject(slug: string): Promise<ProjectMeta> {
+  const projects = await listProjects();
+  const target = projects.find((p) => p.slug === slug);
+  if (!target) {
+    throw new Error(`No existe el proyecto "${slug}".`);
+  }
+
+  if (projects.length <= 1) {
+    throw new Error("Debe existir al menos un proyecto. Crea otro antes de eliminar este.");
+  }
+
+  const paths = getProjectPaths(slug);
+  await fsp.rm(paths.root, { recursive: true, force: true });
+
+  const remaining = projects.filter((p) => p.slug !== slug);
+  const nextActive = remaining[0];
+  await fsp.writeFile(ACTIVE_FILE, nextActive.slug, "utf-8");
+
+  return nextActive;
+}

@@ -197,6 +197,10 @@ async function fetchStatus() {
       )
       .join("");
     $("#active-project-path").textContent = `projects/${data.activeProject.slug}/`;
+    const deleteBtn = $("#btn-delete-project");
+    deleteBtn.disabled = data.projects.length <= 1;
+    deleteBtn.title =
+      data.projects.length <= 1 ? "Debe existir al menos un proyecto" : "Eliminar este proyecto";
   }
 
   // Script
@@ -616,6 +620,45 @@ function setupProjectSwitcher() {
     resetLocalEditorState();
     showToast(`Carpeta creada: projects/${json.project.slug}/`);
     await fetchStatus();
+  });
+
+  const deleteBtn = $("#btn-delete-project");
+  const confirmBar = $("#delete-project-confirm");
+  const confirmMsg = $("#delete-project-message");
+  const confirmDeleteBtn = $("#btn-confirm-delete-project");
+  const cancelDeleteBtn = $("#btn-cancel-delete-project");
+
+  deleteBtn.addEventListener("click", () => {
+    const selectedOption = select.options[select.selectedIndex];
+    const projectName = selectedOption ? selectedOption.textContent : select.value;
+    confirmMsg.textContent = `¿Eliminar permanentemente "${projectName}" y todos sus archivos (guion, audio y escenas)?`;
+    form.classList.add("hidden");
+    confirmBar.classList.remove("hidden");
+  });
+
+  cancelDeleteBtn.addEventListener("click", () => {
+    confirmBar.classList.add("hidden");
+  });
+
+  confirmDeleteBtn.addEventListener("click", async () => {
+    const slug = select.value;
+    confirmDeleteBtn.disabled = true;
+    try {
+      const res = await fetch(`/api/projects/${encodeURIComponent(slug)}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "No se pudo eliminar el proyecto", true);
+        return;
+      }
+      confirmBar.classList.add("hidden");
+      resetLocalEditorState();
+      showToast(`Proyecto eliminado. Activo: ${json.activeProject.name}`);
+      await fetchStatus();
+    } finally {
+      confirmDeleteBtn.disabled = false;
+    }
   });
 }
 

@@ -6,6 +6,7 @@ import express from "express";
 import multer from "multer";
 import {
   createProject,
+  deleteProject,
   getActiveProject,
   listProjects,
   setActiveProject,
@@ -179,6 +180,28 @@ app.post("/api/projects/select", async (req, res) => {
     res.json({ ok: true, project: selected });
   } catch (err) {
     res.status(404).json({ error: err instanceof Error ? err.message : "Proyecto no encontrado" });
+  }
+});
+
+app.delete("/api/projects/:slug", async (req, res) => {
+  const { slug } = req.params;
+  if (!slug) {
+    res.status(400).json({ error: "Falta el identificador del proyecto." });
+    return;
+  }
+
+  if (jobState.running) {
+    res.status(409).json({ error: "Espera a que termine la ejecución actual antes de eliminar." });
+    return;
+  }
+
+  try {
+    const activeProject = await deleteProject(slug);
+    res.json({ ok: true, activeProject });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "No se pudo eliminar el proyecto.",
+    });
   }
 });
 

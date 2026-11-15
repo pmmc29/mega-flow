@@ -238,6 +238,30 @@ code {
   background: var(--bg-surface);
 }
 
+.confirm-delete-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: hsl(6, 70%, 96%);
+  border: 1px solid hsl(6, 55%, 86%);
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--danger);
+  flex-wrap: wrap;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: hsl(6, 68%, 40%);
+}
+
 .section-block {
   display: flex;
   flex-direction: column;
