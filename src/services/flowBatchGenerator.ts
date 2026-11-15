@@ -86,7 +86,9 @@ async function findPromptInput(page: Page) {
     'textarea[placeholder*="Describe" i]',
     'textarea[placeholder*="prompt" i]',
     'textarea[placeholder*="Create" i]',
-    "textarea",
+    'textarea[placeholder*="Write" i]',
+    'textarea[placeholder*="Escribe" i]',
+    'textarea:not([placeholder*="Search" i]):not([placeholder*="Buscar" i])',
     '[role="textbox"][contenteditable="true"]',
     '[contenteditable="true"]',
   ];
@@ -98,6 +100,76 @@ async function findPromptInput(page: Page) {
     }
   }
   return null;
+}
+
+async function resolveFlowProjectUrl(context: BrowserContext): Promise<string> {
+  const baseUrl = getGoogleFlowUrl();
+  const page = await context.newPage();
+
+  try {
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.waitForTimeout(2500);
+
+    if (page.url().includes("accounts.google.com")) {
+      throw new Error(
+        "Google Flow pidió iniciar sesión. Usa primero el botón 'Abrir Flow (Login)' en la pestaña Escenas.",
+      );
+    }
+
+    if (page.url().includes("/project/")) {
+      return page.url();
+    }
+
+    // Estamos en el dashboard/home de Flow: intentar crear o entrar a un proyecto
+    const newProjectSelectors = [
+      'button:has-text("New project")',
+      'button:has-text("Nuevo proyecto")',
+      'a:has-text("New project")',
+      'a:has-text("Nuevo proyecto")',
+      'button:has-text("Create new")',
+      'button:has-text("Crear nuevo")',
+      'button:has-text("New")',
+      'button:has-text("Nuevo")',
+      '[data-testid*="new-project" i]',
+      'a[href*="/project/"]',
+    ];
+
+    for (const sel of newProjectSelectors) {
+      const btn = page.locator(sel).first();
+      if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+        console.log(`[Flow] Entrando a proyecto de Google Flow (${sel})...`);
+        await btn.click();
+        try {
+          await page.waitForURL(/\/project\//, { timeout: 15000 });
+          await page.waitForTimeout(2000);
+          return page.url();
+        } catch {
+          await page.waitForTimeout(2500);
+          if (page.url().includes("/project/")) {
+            return page.url();
+          }
+        }
+      }
+    }
+
+    // Si ya hay un prompt input visible aunque la URL no tenga /project/
+    const directInput = await findPromptInput(page);
+    if (directInput) {
+      return page.url();
+    }
+
+    const visibleButtons = await page.evaluate(() =>
+      Array.from(document.querySelectorAll("button, a"))
+        .map((el) => (el.textContent || "").trim())
+        .filter((t) => t.length > 0 && t.length < 40)
+        .slice(0, 12),
+    );
+    throw new Error(
+      `No se pudo entrar a un proyecto en Google Flow (URL actual: ${page.url()}). Botones visibles: ${visibleButtons.join(" | ")}. También puedes poner la URL directa de tu proyecto en GOOGLE_FLOW_URL en .env.`,
+    );
+  } finally {
+    await page.close().catch(() => {});
+  }
 }
 
 async function attachCharacterReference(page: Page, characterRefPath: string): Promise<boolean> {
@@ -244,15 +316,15 @@ async function saveSceneFromFlowPage(
 
 async function generateSingleFlowScene(
   context: BrowserContext,
+  projectUrl: string,
   scene: Scene,
   characterRefPath: string,
   destPath: string,
 ): Promise<void> {
   const page = await context.newPage();
-  const flowUrl = getGoogleFlowUrl();
 
   try {
-    await page.goto(flowUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.goto(projectUrl, { waitUntil: "domcontentloaded", timeout: 45000 });
     await page.waitForTimeout(2000);
 
     if (page.url().includes("accounts.google.com")) {
@@ -360,6 +432,9 @@ export async function generateFlowBatchScenes(
   const failed: Array<{ sceneId: number; error: string }> = [];
 
   try {
+    const projectUrl = await resolveFlowProjectUrl(context);
+    console.log(`[Flow] Proyecto activo en Flow: ${projectUrl}`);
+
     await Promise.all(
       missingScenes.map((scene) =>
         limit(async () => {
@@ -374,6 +449,7 @@ export async function generateFlowBatchScenes(
               );
               await generateSingleFlowScene(
                 context,
+                projectUrl,
                 scene,
                 options.characterRefPath,
                 destPath,
