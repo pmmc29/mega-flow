@@ -11,6 +11,7 @@ import {
   listProjects,
   setActiveProject,
   touchProject,
+  updateProjectDuration,
   updateProjectTone,
 } from "./config/projectManager.js";
 import { PATHS } from "./config/styleConfig.js";
@@ -18,7 +19,11 @@ import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
 import { renderFinalVideo } from "./services/videoRenderer.js";
-import { checkAceStepHealth, generateAceStepMusic } from "./services/musicGenerator.js";
+import {
+  checkAceStepHealth,
+  generateAceStepMusic,
+  getAudioDurationSeconds,
+} from "./services/musicGenerator.js";
 import {
   buildElevenLabsTagPrompt,
   buildMusicPrompt,
@@ -264,17 +269,19 @@ app.post("/api/script/generate", async (req, res) => {
 
   const resolvedTone =
     typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico";
+  const resolvedDuration = Number(durationSeconds) || 45;
 
   try {
     const { meta } = await getActiveProject();
     await updateProjectTone(meta.slug, resolvedTone);
+    await updateProjectDuration(meta.slug, resolvedDuration);
   } catch {
     // Non-fatal if project metadata update fails
   }
 
   const prompt = buildRetentionScriptPrompt({
     topic: topic.trim(),
-    durationSeconds: Number(durationSeconds) || 45,
+    durationSeconds: resolvedDuration,
     tone: resolvedTone,
     customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
   });
@@ -330,7 +337,7 @@ app.post("/api/script/remotion-style", async (req, res) => {
 });
 
 app.post("/api/script/import-bundle", async (req, res) => {
-  const { content } = req.body ?? {};
+  const { content, durationSeconds } = req.body ?? {};
   if (typeof content !== "string" || !content.trim()) {
     res.status(400).json({ error: "Pega el bloque completo generado por tu agente IA." });
     return;
@@ -351,6 +358,16 @@ app.post("/api/script/import-bundle", async (req, res) => {
     if (bundle.remotionStyle) {
       await fsp.mkdir(path.dirname(paths.remotionStyle), { recursive: true });
       await fsp.writeFile(paths.remotionStyle, bundle.remotionStyle, "utf-8");
+    }
+
+    if (!meta.durationSeconds) {
+      const requested = Number(durationSeconds);
+      if (Number.isFinite(requested) && requested > 0) {
+        await updateProjectDuration(meta.slug, requested);
+      } else {
+        const words = bundle.cleanScript.split(/\s+/).filter(Boolean).length;
+        await updateProjectDuration(meta.slug, Math.max(20, Math.round((words / 140) * 60)));
+      }
     }
 
     await touchProject(meta.slug);
@@ -420,6 +437,46 @@ app.post("/api/upload/script", upload.single("file"), async (req, res) => {
   }
 });
 
+async function resolveTargetMusicDuration(options: {
+  meta: { durationSeconds?: number };
+  paths: { voiceover: string; timestamps: string };
+  scriptText: string;
+  requestedDurationSeconds?: unknown;
+}): Promise<{ durationSeconds: number; source: "voiceover" | "project" | "estimated" }> {
+  if (fs.existsSync(options.paths.voiceover)) {
+    const measured = await getAudioDurationSeconds(options.paths.voiceover);
+    if (measured && measured > 0) {
+      return {
+        durationSeconds: Math.max(10, Math.min(600, Math.round(measured))),
+        source: "voiceover",
+      };
+    }
+    const ts = await readJsonSafe<{ duration?: number }>(options.paths.timestamps);
+    if (ts?.duration && ts.duration > 0) {
+      return {
+        durationSeconds: Math.max(10, Math.min(600, Math.round(ts.duration))),
+        source: "voiceover",
+      };
+    }
+  }
+
+  if (options.meta.durationSeconds && options.meta.durationSeconds > 0) {
+    return {
+      durationSeconds: Math.max(10, Math.min(600, Math.round(options.meta.durationSeconds))),
+      source: "project",
+    };
+  }
+
+  const words = options.scriptText.split(/\s+/).filter(Boolean).length;
+  const estimatedFromScript = Math.max(20, Math.round((words / 140) * 60));
+  const requested = Number(options.requestedDurationSeconds);
+  return {
+    durationSeconds:
+      Number.isFinite(requested) && requested > 0 ? Math.round(requested) : estimatedFromScript,
+    source: "estimated",
+  };
+}
+
 app.post("/api/music/prompt", async (req, res) => {
   const { topic, durationSeconds, tone } = req.body ?? {};
   try {
@@ -445,6 +502,13 @@ app.post("/api/music/prompt", async (req, res) => {
       default_transition?: string;
     }>(paths.remotionStyle);
 
+    const resolvedDuration = await resolveTargetMusicDuration({
+      meta,
+      paths,
+      scriptText,
+      requestedDurationSeconds: durationSeconds,
+    });
+
     const resolvedTopic =
       typeof topic === "string" && topic.trim() ? topic.trim() : meta.name;
     const resolvedTone =
@@ -452,11 +516,16 @@ app.post("/api/music/prompt", async (req, res) => {
     const prompt = buildMusicPrompt({
       topic: resolvedTopic,
       scriptText,
-      durationSeconds: Number(durationSeconds) || undefined,
+      durationSeconds: resolvedDuration.durationSeconds,
       tone: resolvedTone,
       remotionStyle,
     });
-    res.json({ ok: true, prompt });
+    res.json({
+      ok: true,
+      prompt,
+      durationSeconds: resolvedDuration.durationSeconds,
+      durationSource: resolvedDuration.source,
+    });
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Error al armar el prompt musical.",
@@ -489,9 +558,12 @@ app.post("/api/music/generate-acestep", async (req, res) => {
       default_transition?: string;
     }>(paths.remotionStyle);
 
-    const words = scriptText.split(/\s+/).filter(Boolean).length;
-    const resolvedDuration =
-      Number(durationSeconds) || Math.max(20, Math.round((words / 140) * 60));
+    const resolvedDuration = await resolveTargetMusicDuration({
+      meta,
+      paths,
+      scriptText,
+      requestedDurationSeconds: durationSeconds,
+    });
 
     const resolvedPrompt =
       typeof customPrompt === "string" && customPrompt.trim()
@@ -499,14 +571,14 @@ app.post("/api/music/generate-acestep", async (req, res) => {
         : buildMusicPrompt({
             topic: typeof topic === "string" && topic.trim() ? topic.trim() : meta.name,
             scriptText,
-            durationSeconds: resolvedDuration,
+            durationSeconds: resolvedDuration.durationSeconds,
             tone: typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone,
             remotionStyle,
           });
 
     const result = await generateAceStepMusic({
       prompt: resolvedPrompt,
-      durationSeconds: resolvedDuration,
+      durationSeconds: resolvedDuration.durationSeconds,
       outputPath: paths.bgMusic,
     });
 
@@ -514,6 +586,8 @@ app.post("/api/music/generate-acestep", async (req, res) => {
     res.json({
       ok: true,
       prompt: resolvedPrompt,
+      durationSeconds: resolvedDuration.durationSeconds,
+      durationSource: resolvedDuration.source,
       size: result.size,
       taskId: result.taskId,
     });

@@ -224,6 +224,18 @@ async function fetchStatus() {
     if (toneSelect && data.activeProject.tone && document.activeElement !== toneSelect) {
       toneSelect.value = data.activeProject.tone;
     }
+
+    const durationSelect = $("#gen-duration");
+    if (
+      durationSelect &&
+      data.activeProject.durationSeconds &&
+      document.activeElement !== durationSelect
+    ) {
+      const targetVal = String(data.activeProject.durationSeconds);
+      if ([...durationSelect.options].some((o) => o.value === targetVal)) {
+        durationSelect.value = targetVal;
+      }
+    }
   }
 
   // Script & 3-in-1 bundle
@@ -553,10 +565,11 @@ async function saveUnifiedBundle() {
     return false;
   }
 
+  const durationSeconds = Number($("#gen-duration")?.value) || undefined;
   const res = await fetch("/api/script/import-bundle", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: raw }),
+    body: JSON.stringify({ content: raw, durationSeconds }),
   });
   const json = await res.json();
   if (!res.ok) {
@@ -835,7 +848,11 @@ function setupMusicPrompt() {
           copyBtn.classList.remove("hidden");
         }
         resetAssetPreviewCache("bgMusic");
-        showToast(`Música generada con ACE-Step (${formatBytes(json.size)})`);
+        const sourceLabel =
+          json.durationSource === "voiceover" ? "match ElevenLabs" : "duración proyecto";
+        showToast(
+          `Música generada con ACE-Step (${json.durationSeconds}s · ${sourceLabel} · ${formatBytes(json.size)})`,
+        );
         await fetchStatus();
       } finally {
         aceBtn.disabled = false;

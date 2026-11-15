@@ -97,6 +97,32 @@ function convertWavToMp3(wavPath: string, mp3Path: string): Promise<void> {
   });
 }
 
+export async function getAudioDurationSeconds(audioPath: string): Promise<number | null> {
+  const ffmpegBin = ffmpegStatic as unknown as string | null;
+  if (!ffmpegBin) return null;
+
+  return new Promise((resolve) => {
+    const proc = spawn(ffmpegBin, ["-i", audioPath]);
+    let stderr = "";
+    proc.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf-8");
+    });
+    proc.on("error", () => resolve(null));
+    proc.on("close", () => {
+      const match = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (!match) {
+        resolve(null);
+        return;
+      }
+      const hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      const seconds = Number(match[3]);
+      const total = hours * 3600 + minutes * 60 + seconds;
+      resolve(Number.isFinite(total) && total > 0 ? total : null);
+    });
+  });
+}
+
 export async function generateAceStepMusic(
   options: GenerateAceStepMusicOptions,
 ): Promise<{ size: number; taskId: string }> {
