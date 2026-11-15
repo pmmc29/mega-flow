@@ -3,6 +3,7 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
 let pollTimer = null;
 let bundleDirty = false;
+let latestStatus = null;
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -437,13 +438,50 @@ async function fetchStatus() {
     readinessEl.classList.remove("is-ready");
   }
 
+  latestStatus = data;
+
   // Job state
   const { job } = data;
+  const hasGemini = Boolean(data.env?.gemini);
+  const totalScenes = data.outputs?.storyboard?.scenes?.length || 0;
+  const loadedScenes = (data.outputs?.scenes || []).length;
+  const allScenesReady = totalScenes > 0 && loadedScenes >= totalScenes;
+
   const runButtons = $$("[data-run]");
   runButtons.forEach((btn) => {
-    if (btn.dataset.run === "transcribe" && !hasAudio) {
+    const step = btn.dataset.run;
+
+    if (step === "direct") {
+      btn.classList.toggle("hidden", !hasGemini);
+    }
+
+    if (step === "images") {
+      btn.textContent = hasGemini
+        ? "3. Generar Imágenes"
+        : totalScenes > 0
+          ? `2. Subir Escenas Flow (${loadedScenes}/${totalScenes})`
+          : "2. Subir Escenas (Google Flow)";
+    }
+
+    if (step === "render") {
+      btn.textContent = hasGemini ? "4. Renderizar Video" : "3. Renderizar Video";
+    }
+
+    if (step === "all") {
+      btn.textContent = hasGemini
+        ? "Ejecutar Pipeline Completo (1 → 4)"
+        : "Transcribir y Renderizar Video";
+    }
+
+    if (step === "transcribe" && !hasAudio) {
       btn.disabled = true;
       btn.title = "Sube primero un archivo en Audio de Locución";
+    } else if (!hasGemini && (step === "render" || step === "all") && !allScenesReady) {
+      btn.disabled = true;
+      btn.title =
+        totalScenes === 0
+          ? "Primero pega y guarda el bloque 4 en 1 con el storyboard"
+          : `Faltan escenas por subir en Paso 3 → Escenas (${loadedScenes}/${totalScenes})`;
     } else {
       btn.disabled = job.running;
       btn.title = "";
@@ -708,6 +746,25 @@ function setupRunner() {
         const ok = await saveUnifiedBundle();
         if (!ok) return;
       }
+
+      if (step === "images" && !latestStatus?.env?.gemini) {
+        const scenesTab = $(`[data-tab="scenes"]`);
+        scenesTab?.click();
+        $("#panel-scenes")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const totalScenes = latestStatus?.outputs?.storyboard?.scenes?.length || 0;
+        const loadedScenes = (latestStatus?.outputs?.scenes || []).length;
+        if (totalScenes === 0) {
+          showToast("Primero pega y guarda el bloque 4 en 1 con el storyboard", true);
+        } else if (loadedScenes < totalScenes) {
+          showToast(
+            `Copia los prompts de cada tarjeta en Google Flow y sube las ${totalScenes - loadedScenes} escena(s) faltante(s).`,
+          );
+        } else {
+          showToast(`Las ${totalScenes} escenas están listas para renderizar.`);
+        }
+        return;
+      }
+
       const res = await fetch(`/api/run/${step}`, { method: "POST" });
       const json = await res.json();
       if (!res.ok) {
