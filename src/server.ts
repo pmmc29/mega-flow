@@ -1,8 +1,11 @@
 import "dotenv/config";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import express from "express";
+import ffmpegStatic from "ffmpeg-static";
 import multer from "multer";
 import {
   createProject,
@@ -14,9 +17,13 @@ import {
   updateProjectDuration,
   updateProjectTone,
 } from "./config/projectManager.js";
-import { PATHS } from "./config/styleConfig.js";
+import {
+  CHARACTER_CONSISTENCY_PREFIX,
+  PATHS,
+  STYLE_ANCHOR,
+} from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
-import { generateStoryboard } from "./services/sceneDirector.js";
+import { generateStoryboard, syncStoryboardToDuration } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
 import { renderFinalVideo } from "./services/videoRenderer.js";
 import {
@@ -157,6 +164,10 @@ app.get("/api/status", async (_req, res) => {
       gemini: Boolean(process.env.GEMINI_API_KEY),
       transcriberProvider: process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local",
       aceStep,
+    },
+    config: {
+      styleAnchor: STYLE_ANCHOR,
+      characterPrefix: CHARACTER_CONSISTENCY_PREFIX,
     },
     activeProject,
     projects,
@@ -358,6 +369,15 @@ app.post("/api/script/import-bundle", async (req, res) => {
     if (bundle.remotionStyle) {
       await fsp.mkdir(path.dirname(paths.remotionStyle), { recursive: true });
       await fsp.writeFile(paths.remotionStyle, bundle.remotionStyle, "utf-8");
+    }
+
+    if (bundle.storyboard) {
+      await fsp.mkdir(path.dirname(paths.storyboard), { recursive: true });
+      await fsp.writeFile(paths.storyboard, bundle.storyboard, "utf-8");
+      const ts = await readJsonSafe<TranscriptionResult>(paths.timestamps);
+      if (ts?.duration && ts.duration > 0) {
+        await syncStoryboardToDuration(paths.storyboard, ts.duration);
+      }
     }
 
     if (!meta.durationSeconds) {
@@ -712,21 +732,51 @@ app.post("/api/run/:step", async (req, res) => {
     try {
       appendLog(`[${meta.name}] Iniciando ejecución: ${step}`);
       if (step === "transcribe") {
-        await transcribeVoiceover(paths.voiceover, paths.timestamps);
+        const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+        await syncStoryboardToDuration(paths.storyboard, ts.duration);
       } else if (step === "all") {
         if (fs.existsSync(paths.voiceover)) {
-          await transcribeVoiceover(paths.voiceover, paths.timestamps);
+          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+          await syncStoryboardToDuration(paths.storyboard, ts.duration);
         } else {
           appendLog(
             "[Pipeline] Sin audio de locución en este proyecto; omitiendo transcripción y usando duración estimada del guion.",
           );
         }
       }
-      if (step === "direct" || step === "all") {
+      if (step === "direct") {
         await generateStoryboard(paths.script, paths.timestamps, paths.storyboard);
+      } else if (step === "all") {
+        if (fs.existsSync(paths.storyboard) && !process.env.GEMINI_API_KEY) {
+          appendLog(
+            "[Pipeline] Usando storyboard.json importado del bloque 4 en 1 (sin Gemini API).",
+          );
+        } else {
+          await generateStoryboard(paths.script, paths.timestamps, paths.storyboard);
+        }
       }
       if (step === "images" || step === "all") {
-        await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
+        if (process.env.GEMINI_API_KEY) {
+          await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
+        } else {
+          const sb = await readJsonSafe<Storyboard>(paths.storyboard);
+          if (!sb || !Array.isArray(sb.scenes) || sb.scenes.length === 0) {
+            throw new Error(
+              "No hay storyboard.json. Pega el bloque 4 en 1 para generar las escenas.",
+            );
+          }
+          const missing = sb.scenes
+            .map((s) => `scene_${String(s.id).padStart(3, "0")}.png`)
+            .filter((name) => !fs.existsSync(path.join(paths.scenesDir, name)));
+          if (missing.length > 0) {
+            throw new Error(
+              `Faltan ${missing.length} escenas (${missing.slice(0, 4).join(", ")}${missing.length > 4 ? "..." : ""}). Súbelas en la pestaña Escenas desde Google Flow.`,
+            );
+          }
+          appendLog(
+            `[Google Flow] ${sb.scenes.length} escenas verificadas en workspace/scenes/.`,
+          );
+        }
       }
       if (step === "render" || step === "all") {
         await renderFinalVideo({
@@ -734,7 +784,7 @@ app.post("/api/run/:step", async (req, res) => {
           timestampsPath: paths.timestamps,
           scenesDir: paths.scenesDir,
           voiceoverPath: paths.voiceover,
-          bgMusicPath: PATHS.bgMusic,
+          bgMusicPath: fs.existsSync(paths.bgMusic) ? paths.bgMusic : PATHS.bgMusic,
           watermarkPath: PATHS.watermark,
           remotionStylePath: paths.remotionStyle,
           projectTone: meta.tone,
@@ -758,6 +808,155 @@ app.post("/api/run/:step", async (req, res) => {
   res.json({ ok: true, started: step });
 });
 
+async function saveImageAsPng(buffer: Buffer, destPath: string): Promise<void> {
+  await fsp.mkdir(path.dirname(destPath), { recursive: true });
+  const isPng =
+    buffer.length >= 4 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47;
+  if (isPng) {
+    await fsp.writeFile(destPath, buffer);
+    return;
+  }
+
+  const ffmpegBin = ffmpegStatic as unknown as string | null;
+  if (!ffmpegBin) {
+    await fsp.writeFile(destPath, buffer);
+    return;
+  }
+
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "mega-scene-"));
+  const tmpInput = path.join(tmpDir, "upload.img");
+  try {
+    await fsp.writeFile(tmpInput, buffer);
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(ffmpegBin, ["-y", "-i", tmpInput, "-frames:v", "1", destPath]);
+      let stderr = "";
+      proc.stderr.on("data", (chunk: Buffer) => {
+        stderr += chunk.toString("utf-8");
+      });
+      proc.on("error", reject);
+      proc.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`ffmpeg falló al convertir imagen a PNG (${code}): ${stderr.slice(-200)}`));
+      });
+    });
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
+}
+
+app.post("/api/scenes/:sceneId/upload", upload.single("file"), async (req, res) => {
+  const sceneId = Number(req.params.sceneId);
+  if (!Number.isInteger(sceneId) || sceneId <= 0) {
+    res.status(400).json({ error: "Número de escena inválido." });
+    return;
+  }
+  if (!req.file) {
+    res.status(400).json({ error: "No se recibió ninguna imagen." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const filename = `scene_${String(sceneId).padStart(3, "0")}.png`;
+    const destPath = path.join(paths.scenesDir, filename);
+    await saveImageAsPng(req.file.buffer, destPath);
+    await touchProject(meta.slug);
+    res.json({ ok: true, sceneId, filename, size: req.file.size });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al guardar la imagen de la escena.",
+    });
+  }
+});
+
+app.post("/api/scenes/upload-batch", upload.array("files", 50), async (req, res) => {
+  const files = (req.files as Express.Multer.File[] | undefined) ?? [];
+  if (files.length === 0) {
+    res.status(400).json({ error: "Selecciona al menos una imagen para subir." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const sb = await readJsonSafe<Storyboard>(paths.storyboard);
+    const totalScenes = sb?.scenes?.length ?? 0;
+
+    const sortedFiles = [...files].sort((a, b) =>
+      a.originalname.localeCompare(b.originalname, undefined, { numeric: true }),
+    );
+
+    const existingSet = new Set<number>();
+    if (fs.existsSync(paths.scenesDir)) {
+      for (const entry of await fsp.readdir(paths.scenesDir)) {
+        const m = entry.match(/^scene_(\d+)\.png$/);
+        if (m) existingSet.add(Number(m[1]));
+      }
+    }
+
+    const missingIds: number[] = [];
+    for (let id = 1; id <= totalScenes; id++) {
+      if (!existingSet.has(id)) missingIds.push(id);
+    }
+
+    const assigned: Array<{ sceneId: number; filename: string; originalname: string }> = [];
+    let nextFallbackId = 1;
+
+    for (const file of sortedFiles) {
+      let targetId: number | undefined;
+      if (missingIds.length > 0) {
+        targetId = missingIds.shift();
+      } else if (totalScenes > 0) {
+        if (nextFallbackId <= totalScenes) {
+          targetId = nextFallbackId++;
+        } else {
+          break;
+        }
+      } else {
+        targetId = nextFallbackId++;
+      }
+
+      if (!targetId) break;
+      const filename = `scene_${String(targetId).padStart(3, "0")}.png`;
+      await saveImageAsPng(file.buffer, path.join(paths.scenesDir, filename));
+      assigned.push({ sceneId: targetId, filename, originalname: file.originalname });
+    }
+
+    await touchProject(meta.slug);
+    res.json({ ok: true, assigned });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al subir imágenes en lote.",
+    });
+  }
+});
+
+app.delete("/api/scenes/:sceneId", async (req, res) => {
+  const sceneId = Number(req.params.sceneId);
+  if (!Number.isInteger(sceneId) || sceneId <= 0) {
+    res.status(400).json({ error: "Número de escena inválido." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const filename = `scene_${String(sceneId).padStart(3, "0")}.png`;
+    const destPath = path.join(paths.scenesDir, filename);
+    if (fs.existsSync(destPath)) {
+      await fsp.unlink(destPath);
+      await touchProject(meta.slug);
+    }
+    res.json({ ok: true, sceneId, filename });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al eliminar la escena.",
+    });
+  }
+});
+
 // Media preview endpoints (per active project for voiceover, scenes & final video; shared for brand assets)
 app.get("/media/voiceover", async (_req, res) => {
   const { paths } = await getActiveProject();
@@ -774,6 +973,7 @@ app.get("/media/scenes/:filename", async (req, res) => {
   const safeName = path.basename(req.params.filename);
   const filePath = path.join(paths.scenesDir, safeName);
   if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.setHeader("Cache-Control", "no-store");
   res.sendFile(filePath);
 });
 function detectImageMime(buf: Buffer): string {

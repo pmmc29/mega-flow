@@ -160,3 +160,39 @@ export async function generateStoryboard(
 
   return storyboard;
 }
+
+export async function syncStoryboardToDuration(
+  storyboardPath: string,
+  targetDurationSeconds: number,
+): Promise<boolean> {
+  if (!fs.existsSync(storyboardPath) || targetDurationSeconds <= 0) return false;
+
+  try {
+    const raw = await fsp.readFile(storyboardPath, "utf-8");
+    const storyboard = JSON.parse(raw) as Storyboard;
+    if (!Array.isArray(storyboard.scenes) || storyboard.scenes.length === 0) return false;
+
+    const currentEnd = storyboard.scenes[storyboard.scenes.length - 1].end;
+    if (!Number.isFinite(currentEnd) || currentEnd <= 0) return false;
+
+    const scale = targetDurationSeconds / currentEnd;
+    if (Math.abs(currentEnd - targetDurationSeconds) < 0.05) return false;
+
+    for (let i = 0; i < storyboard.scenes.length; i++) {
+      const scene = storyboard.scenes[i];
+      scene.start = i === 0 ? 0 : storyboard.scenes[i - 1].end;
+      scene.end =
+        i === storyboard.scenes.length - 1
+          ? Number(targetDurationSeconds.toFixed(3))
+          : Number((scene.end * scale).toFixed(3));
+    }
+
+    await fsp.writeFile(storyboardPath, JSON.stringify(storyboard, null, 2), "utf-8");
+    console.log(
+      `[SceneDirector] Storyboard sincronizado de ${currentEnd.toFixed(2)}s -> ${targetDurationSeconds.toFixed(2)}s`,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}

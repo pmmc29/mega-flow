@@ -76,39 +76,100 @@ function renderOutputs(outputs) {
 
   $("#count-scenes").textContent = String(scenes.length);
 
-  // Scenes tab
+  // Scenes tab (Google Flow + previews)
   const scenesGrid = $("#scenes-grid");
   const emptyScenes = $("#empty-scenes");
-  if (scenes.length === 0) {
+  const scenesToolbar = $("#scenes-toolbar");
+  const scenesProgressText = $("#scenes-progress-text");
+  const existingSet = new Set(scenes);
+  const styleAnchor = data.config?.styleAnchor || "";
+  const characterPrefix = data.config?.characterPrefix || "";
+
+  if (storyboard?.scenes?.length) {
+    emptyScenes.classList.add("hidden");
+    scenesToolbar?.classList.remove("hidden");
+    const loadedCount = storyboard.scenes.filter((s) =>
+      existingSet.has(`scene_${String(s.id).padStart(3, "0")}.png`),
+    ).length;
+    if (scenesProgressText) {
+      scenesProgressText.textContent = `${loadedCount} / ${storyboard.scenes.length} escenas listas`;
+    }
+
+    scenesGrid.innerHTML = storyboard.scenes
+      .map((meta) => {
+        const filename = `scene_${String(meta.id).padStart(3, "0")}.png`;
+        const hasImage = existingSet.has(filename);
+        const flowPromptParts = [];
+        if (meta.use_character && characterPrefix) flowPromptParts.push(characterPrefix.trim());
+        flowPromptParts.push(meta.image_prompt);
+        if (styleAnchor) flowPromptParts.push(styleAnchor);
+        const fullFlowPrompt = flowPromptParts.join(" ").replace(/\s+/g, " ").trim();
+        const escapedPrompt = fullFlowPrompt.replace(/"/g, "&quot;");
+
+        return `
+          <article class="scene-card" data-scene-id="${meta.id}">
+            ${
+              hasImage
+                ? `<img src="/media/scenes/${filename}?t=${Date.now()}" alt="Escena ${meta.id}" loading="lazy" />`
+                : `<label class="scene-dropzone" data-scene-drop="${meta.id}">
+                    <span>Arrastra o haz clic para subir<br/><strong>${filename}</strong></span>
+                    <input type="file" class="scene-file-input" data-scene-id="${meta.id}" accept="image/png,image/jpeg,image/webp" hidden />
+                  </label>`
+            }
+            <div class="scene-card-body">
+              <div class="scene-meta-row">
+                <span>Escena ${meta.id}</span>
+                <span>${meta.start.toFixed(1)}s – ${meta.end.toFixed(1)}s</span>
+              </div>
+              <div class="scene-tags">
+                <span class="tag ${meta.use_character ? "tag-character" : ""}">${
+                  meta.use_character ? "Personaje (adjuntar ref)" : "Conceptual"
+                }</span>
+                <span class="tag">${meta.camera_motion}</span>
+              </div>
+              <p class="scene-prompt" title="${escapedPrompt}">${meta.image_prompt}</p>
+              <div class="scene-actions">
+                <button type="button" class="btn btn-primary btn-xs btn-copy-flow-prompt" data-flow-prompt="${escapedPrompt}">
+                  Copiar prompt Flow
+                </button>
+                ${
+                  hasImage
+                    ? `<label class="btn btn-secondary btn-xs scene-upload-label">
+                        Reemplazar
+                        <input type="file" class="scene-file-input" data-scene-id="${meta.id}" accept="image/png,image/jpeg,image/webp" hidden />
+                      </label>
+                      <button type="button" class="btn btn-ghost btn-xs btn-delete-scene" data-scene-id="${meta.id}">
+                        Quitar
+                      </button>`
+                    : ""
+                }
+              </div>
+            </div>
+          </article>
+        `;
+      })
+      .join("");
+  } else if (scenes.length === 0) {
+    scenesToolbar?.classList.add("hidden");
     emptyScenes.classList.remove("hidden");
     scenesGrid.innerHTML = "";
   } else {
+    scenesToolbar?.classList.remove("hidden");
+    if (scenesProgressText) {
+      scenesProgressText.textContent = `${scenes.length} escenas cargadas`;
+    }
     emptyScenes.classList.add("hidden");
-    const sceneMap = new Map((storyboard?.scenes || []).map((s) => [s.id, s]));
     scenesGrid.innerHTML = scenes
       .map((filename) => {
         const match = filename.match(/scene_(\d+)\.png/);
         const id = match ? Number(match[1]) : 0;
-        const meta = sceneMap.get(id);
         return `
-          <article class="scene-card">
+          <article class="scene-card" data-scene-id="${id}">
             <img src="/media/scenes/${filename}?t=${Date.now()}" alt="Escena ${id}" loading="lazy" />
             <div class="scene-card-body">
               <div class="scene-meta-row">
                 <span>Escena ${id || filename}</span>
-                ${meta ? `<span>${meta.start.toFixed(1)}s – ${meta.end.toFixed(1)}s</span>` : ""}
               </div>
-              ${
-                meta
-                  ? `
-                <div class="scene-tags">
-                  <span class="tag">${meta.use_character ? "Con personaje" : "Conceptual"}</span>
-                  <span class="tag">${meta.camera_motion}</span>
-                </div>
-                <p class="scene-prompt" title="${meta.image_prompt.replace(/"/g, "&quot;")}">${meta.image_prompt}</p>
-              `
-                  : ""
-              }
             </div>
           </article>
         `;
@@ -255,6 +316,8 @@ async function fetchStatus() {
     scriptState.classList.remove("is-ready");
   }
 
+  const hasStoryboard = Boolean(data.outputs?.storyboard?.scenes?.length);
+
   if (!bundleDirty) {
     const parts = [];
     if (hasCleanScript) {
@@ -266,6 +329,9 @@ async function fetchStatus() {
     if (hasRemotion) {
       parts.push(`=== REMOTION_JSON ===\n${remotionMeta.content.trim()}`);
     }
+    if (hasStoryboard) {
+      parts.push(`=== STORYBOARD_JSON ===\n${JSON.stringify(data.outputs.storyboard, null, 2)}`);
+    }
     const bundleArea = $("#bundle-textarea");
     if (bundleArea) {
       bundleArea.value = parts.join("\n\n");
@@ -274,11 +340,12 @@ async function fetchStatus() {
 
   const bundleStatusEl = $("#bundle-status");
   if (bundleStatusEl && !bundleDirty) {
-    if (hasCleanScript || hasEleven || hasRemotion) {
+    if (hasCleanScript || hasEleven || hasRemotion || hasStoryboard) {
       bundleStatusEl.textContent = [
         `Guion ${hasCleanScript ? "✓" : "—"}`,
         `ElevenLabs ${hasEleven ? "✓" : "—"}`,
         `Remotion ${hasRemotion ? "✓" : "preset"}`,
+        `Storyboard ${hasStoryboard ? "✓" : "—"}`,
       ].join(" · ");
     } else {
       bundleStatusEl.textContent = "Pendiente de importar";
@@ -869,11 +936,119 @@ function setupMusicPrompt() {
   }
 }
 
+async function uploadSingleSceneFile(sceneId, file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const res = await fetch(`/api/scenes/${sceneId}/upload`, {
+    method: "POST",
+    body: formData,
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    showToast(json.error || `Error al subir escena ${sceneId}`, true);
+    return;
+  }
+  showToast(`Escena ${sceneId} guardada (${json.filename})`);
+  await fetchStatus();
+}
+
+function setupSceneUploaders() {
+  const scenesGrid = $("#scenes-grid");
+  const batchInput = $("#scenes-batch-input");
+
+  if (batchInput) {
+    batchInput.addEventListener("change", async () => {
+      const files = Array.from(batchInput.files || []);
+      if (files.length === 0) return;
+
+      const formData = new FormData();
+      for (const f of files) {
+        formData.append("files", f);
+      }
+
+      const res = await fetch("/api/scenes/upload-batch", {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      batchInput.value = "";
+      if (!res.ok) {
+        showToast(json.error || "Error al subir imágenes en lote", true);
+        return;
+      }
+      showToast(`${json.assigned?.length || 0} escena(s) asignadas desde Google Flow`);
+      await fetchStatus();
+    });
+  }
+
+  if (!scenesGrid) return;
+
+  scenesGrid.addEventListener("click", async (event) => {
+    const copyBtn = event.target.closest(".btn-copy-flow-prompt");
+    if (copyBtn) {
+      const prompt = copyBtn.getAttribute("data-flow-prompt") || "";
+      if (prompt) {
+        await navigator.clipboard.writeText(prompt);
+        showToast("Prompt para Google Flow copiado");
+      }
+      return;
+    }
+
+    const deleteBtn = event.target.closest(".btn-delete-scene");
+    if (deleteBtn) {
+      const sceneId = Number(deleteBtn.getAttribute("data-scene-id"));
+      if (!sceneId) return;
+      const res = await fetch(`/api/scenes/${sceneId}`, { method: "DELETE" });
+      if (!res.ok) {
+        showToast("No se pudo quitar la escena", true);
+        return;
+      }
+      showToast(`Escena ${sceneId} eliminada`);
+      await fetchStatus();
+    }
+  });
+
+  scenesGrid.addEventListener("change", async (event) => {
+    const input = event.target.closest(".scene-file-input");
+    if (!input) return;
+    const sceneId = Number(input.getAttribute("data-scene-id"));
+    const file = input.files?.[0];
+    input.value = "";
+    if (!sceneId || !file) return;
+    await uploadSingleSceneFile(sceneId, file);
+  });
+
+  scenesGrid.addEventListener("dragover", (event) => {
+    const dropzone = event.target.closest(".scene-dropzone");
+    if (!dropzone) return;
+    event.preventDefault();
+    dropzone.classList.add("is-dragover");
+  });
+
+  scenesGrid.addEventListener("dragleave", (event) => {
+    const dropzone = event.target.closest(".scene-dropzone");
+    if (!dropzone) return;
+    dropzone.classList.remove("is-dragover");
+  });
+
+  scenesGrid.addEventListener("drop", async (event) => {
+    const dropzone = event.target.closest(".scene-dropzone");
+    if (!dropzone) return;
+    event.preventDefault();
+    dropzone.classList.remove("is-dragover");
+    const sceneId = Number(dropzone.getAttribute("data-scene-drop"));
+    const file = event.dataTransfer?.files?.[0];
+    if (!sceneId || !file) return;
+    await uploadSingleSceneFile(sceneId, file);
+  });
+}
+
 setupProjectSwitcher();
 setupDropzones();
 setupBundleEditor();
 setupScriptGenerator();
 setupMusicPrompt();
+setupSceneUploaders();
 setupRunner();
 setupTabs();
 void fetchStatus();

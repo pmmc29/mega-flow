@@ -192,12 +192,12 @@
         </article>
 
         <div class="input-grid">
-          <!-- Tarjeta 1: Guion y Estilo (3 en 1) -->
+          <!-- Tarjeta 1: Guion y Dirección (4 en 1) -->
           <article class="card card-script" id="card-script">
             <div class="card-head">
               <div>
                 <div class="card-title-row">
-                  <h3>Guion y Estilo (3 en 1)</h3>
+                  <h3>Guion y Dirección (4 en 1)</h3>
                   <span class="badge badge-required">Requerido</span>
                 </div>
                 <code class="file-path" id="script-file-label">input/script.txt · workspace/</code>
@@ -207,8 +207,8 @@
 
             <p class="card-help">
               Pega en un solo bloque el resultado de tu agente IA (<code>=== GUION_LIMPIO ===</code>,
-              <code>=== ELEVENLABS ===</code> y <code>=== REMOTION_JSON ===</code>) para guardar todo
-              de una vez.
+              <code>=== ELEVENLABS ===</code>, <code>=== REMOTION_JSON ===</code> y
+              <code>=== STORYBOARD_JSON ===</code>) para guardar todo de una vez.
             </p>
 
             <div class="editor-wrap" id="script-panel-bundle">
@@ -216,8 +216,8 @@
                 id="bundle-textarea"
                 rows="10"
                 class="mono-textarea"
-                placeholder="=== GUION_LIMPIO ===&#10;Tu guion limpio aquí...&#10;&#10;=== ELEVENLABS ===&#10;[curious] Tu guion con etiquetas...&#10;&#10;=== REMOTION_JSON ===&#10;{ &quot;hook_badge&quot;: &quot;DATO OCULTO&quot;, ... }"
-                aria-label="Pegado único de guion limpio, ElevenLabs y estilo Remotion"
+                placeholder="=== GUION_LIMPIO ===&#10;Tu guion limpio aquí...&#10;&#10;=== ELEVENLABS ===&#10;[curious] Tu guion con etiquetas...&#10;&#10;=== REMOTION_JSON ===&#10;{ &quot;hook_badge&quot;: &quot;DATO OCULTO&quot;, ... }&#10;&#10;=== STORYBOARD_JSON ===&#10;{ &quot;title&quot;: &quot;...&quot;, &quot;scenes&quot;: [ ... ] }"
+                aria-label="Pegado único de guion limpio, ElevenLabs, estilo Remotion y storyboard"
               ></textarea>
               <div class="editor-meta">
                 <span class="meta-text" id="bundle-status">
@@ -501,8 +501,26 @@
         </div>
 
         <div class="tab-panel" id="panel-scenes">
+          <div class="scenes-toolbar hidden" id="scenes-toolbar">
+            <div class="scenes-progress">
+              <strong id="scenes-progress-text">0 / 0 escenas listas</strong>
+              <span class="meta-text">Copia el prompt de cada escena en Google Flow (9:16) y sube las imágenes aquí.</span>
+            </div>
+            <div class="scenes-batch-actions">
+              <label class="btn btn-secondary btn-sm scenes-batch-label">
+                Subir varias imágenes
+                <input
+                  type="file"
+                  id="scenes-batch-input"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp"
+                  hidden
+                />
+              </label>
+            </div>
+          </div>
           <div class="empty-state" id="empty-scenes">
-            Aún no hay escenas generadas en <code>workspace/scenes/</code>.
+            Aún no hay escenas en <code>workspace/storyboard.json</code> ni en <code>workspace/scenes/</code>.
           </div>
           <div class="scenes-grid" id="scenes-grid"></div>
         </div>
