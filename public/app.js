@@ -193,7 +193,7 @@ function renderOutputs(outputs) {
 }
 
 async function fetchStatus() {
-  const res = await fetch("/api/status");
+  const res = await fetch("/api/status", { cache: "no-store" });
   if (!res.ok) return;
   const data = await res.json();
 
@@ -213,6 +213,7 @@ async function fetchStatus() {
           `<option value="${p.slug}" ${p.slug === data.activeProject.slug ? "selected" : ""}>${p.name}</option>`,
       )
       .join("");
+    select.value = data.activeProject.slug;
     $("#active-project-path").textContent = `projects/${data.activeProject.slug}/`;
     const deleteBtn = $("#btn-delete-project");
     deleteBtn.disabled = data.projects.length <= 1;
@@ -607,11 +608,21 @@ function setupProjectSwitcher() {
   const nameInput = $("#new-project-name");
 
   const resetLocalEditorState = () => {
-    scriptDirty = false;
-    elevenLabsDirty = false;
-    remotionStyleDirty = false;
-    const audioVo = $("#audio-voiceover");
-    if (audioVo) audioVo.dataset.loadedAt = "";
+    bundleDirty = false;
+    const bundleArea = $("#bundle-textarea");
+    if (bundleArea) bundleArea.value = "";
+    const voBox = $("#vo-elevenlabs-box");
+    if (voBox) voBox.classList.add("hidden");
+    const voText = $("#vo-elevenlabs-textarea");
+    if (voText) voText.value = "";
+    const promptWrap = $("#prompt-output-wrap");
+    if (promptWrap) promptWrap.classList.add("hidden");
+    resetAssetPreviewCache("voiceover");
+    const finalVideoPlayer = $("#final-video-player");
+    if (finalVideoPlayer) {
+      finalVideoPlayer.dataset.loadedAt = "";
+      finalVideoPlayer.removeAttribute("src");
+    }
   };
 
   select.addEventListener("change", async () => {

@@ -102,9 +102,9 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     text = outerFenceMatch[1].trim();
   }
 
-  const cleanHeader = /^===\s*(?:1\.\s*)?GUION[_\s]+LIMPIO[^=]*===\s*$/im;
-  const elevenHeader = /^===\s*(?:2\.\s*)?(?:GUION\s+)?ELEVENLABS[^=]*===\s*$/im;
-  const remotionHeader = /^===\s*(?:3\.\s*)?(?:REMOTION[_\s]+JSON|DIRECCI[ÓO]N\s+VISUAL\s+REMOTION[^=]*)===\s*$/im;
+  const cleanHeader = /^[#*\s-]*===\s*(?:1\.\s*)?GUION[_\s]+LIMPIO[^\n=]*===[*\s]*$/im;
+  const elevenHeader = /^[#*\s-]*===\s*(?:2\.\s*)?(?:GUION\s+)?ELEVENLABS[^\n=]*===[*\s]*$/im;
+  const remotionHeader = /^[#*\s-]*===\s*(?:3\.\s*)?(?:REMOTION[^\n=]*|DIRECCI[ÓO]N\s+VISUAL[^\n=]*)===[*\s]*$/im;
 
   const cleanMatch = cleanHeader.exec(text);
   const elevenMatch = elevenHeader.exec(text);

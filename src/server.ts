@@ -83,6 +83,7 @@ async function readJsonSafe<T>(filePath: string): Promise<T | null> {
 }
 
 app.get("/api/status", async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
   const [{ meta: activeProject, paths: projectPaths }, projects] = await Promise.all([
     getActiveProject(),
     listProjects(),
