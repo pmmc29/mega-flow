@@ -70,7 +70,7 @@ function renderAssetPreview(key, meta, mediaUrl, isImage) {
   }
 }
 
-function renderOutputs(outputs) {
+function renderOutputs(outputs, config = {}) {
   const scenes = outputs.scenes || [];
   const storyboard = outputs.storyboard;
   const timestamps = outputs.timestamps;
@@ -83,8 +83,8 @@ function renderOutputs(outputs) {
   const scenesToolbar = $("#scenes-toolbar");
   const scenesProgressText = $("#scenes-progress-text");
   const existingSet = new Set(scenes);
-  const styleAnchor = data.config?.styleAnchor || "";
-  const characterPrefix = data.config?.characterPrefix || "";
+  const styleAnchor = config?.styleAnchor || "";
+  const characterPrefix = config?.characterPrefix || "";
 
   if (storyboard?.scenes?.length) {
     emptyScenes.classList.add("hidden");
@@ -518,7 +518,7 @@ async function fetchStatus() {
     pollTimer = null;
   }
 
-  renderOutputs(data.outputs);
+  renderOutputs(data.outputs, data.config);
 }
 
 function resetAssetPreviewCache(assetKey) {
