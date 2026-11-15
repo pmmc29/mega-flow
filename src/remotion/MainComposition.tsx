@@ -1,6 +1,20 @@
 import React from "react";
-import { AbsoluteFill, Audio, Img, Sequence, staticFile, useVideoConfig } from "remotion";
-import type { Storyboard, TranscriptionResult } from "../types/pipeline.js";
+import {
+  AbsoluteFill,
+  Audio,
+  Img,
+  interpolate,
+  Sequence,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from "remotion";
+import type {
+  RemotionVisualConfig,
+  Storyboard,
+  TranscriptionResult,
+} from "../types/pipeline.js";
+import { getTonePreset } from "./presets.js";
 import { AnimatedScene } from "./components/AnimatedScene.js";
 import { DynamicCaptions } from "./components/DynamicCaptions.js";
 
@@ -10,6 +24,7 @@ export interface MainCompositionProps extends Record<string, unknown> {
   hasVoiceover: boolean;
   hasBgMusic: boolean;
   hasWatermark: boolean;
+  visualConfig?: RemotionVisualConfig;
 }
 
 function sceneFilename(id: number): string {
@@ -22,8 +37,25 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
   hasVoiceover,
   hasBgMusic,
   hasWatermark,
+  visualConfig,
 }) => {
   const { fps } = useVideoConfig();
+  const frame = useCurrentFrame();
+  const config = visualConfig ?? getTonePreset();
+
+  const hookBadgeFrames = Math.round(2.6 * fps);
+  const showHookBadge = Boolean(config.hook_badge && frame < hookBadgeFrames);
+  const badgeOpacity = showHookBadge
+    ? interpolate(
+        frame,
+        [0, 6, Math.max(7, hookBadgeFrames - 8), hookBadgeFrames],
+        [0, 1, 1, 0],
+        { extrapolateRight: "clamp" },
+      )
+    : 0;
+  const badgeScale = showHookBadge
+    ? interpolate(frame, [0, 7], [0.85, 1], { extrapolateRight: "clamp" })
+    : 1;
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
@@ -31,6 +63,8 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
         const startFrame = Math.round(scene.start * fps);
         const endFrame = Math.round(scene.end * fps);
         const durationInFrames = Math.max(1, endFrame - startFrame);
+        const transition =
+          config.scene_transitions?.[index] ?? config.default_transition;
 
         return (
           <Sequence
@@ -42,10 +76,21 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
               src={staticFile(sceneFilename(scene.id))}
               durationInFrames={durationInFrames}
               cameraMotion={scene.camera_motion}
+              transition={transition}
+              hookShake={index === 0 && config.hook_shake}
             />
           </Sequence>
         );
       })}
+
+      {config.vignette > 0 && (
+        <AbsoluteFill
+          style={{
+            pointerEvents: "none",
+            background: `radial-gradient(circle at center, rgba(0,0,0,0) 46%, rgba(0,0,0,${Math.min(0.85, config.vignette)}) 100%)`,
+          }}
+        />
+      )}
 
       {hasBgMusic && (
         <Audio src={staticFile("bg_music.mp3")} volume={0.12} loop />
@@ -70,8 +115,47 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
         />
       )}
 
+      {showHookBadge && config.hook_badge && (
+        <div
+          style={{
+            position: "absolute",
+            top: 155,
+            left: 72,
+            right: 72,
+            display: "flex",
+            justifyContent: "center",
+            pointerEvents: "none",
+            opacity: badgeOpacity,
+            transform: `scale(${badgeScale})`,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: "rgba(10, 12, 18, 0.85)",
+              border: `3px solid ${config.accent_color}`,
+              color: config.accent_color,
+              fontFamily: "'Plus Jakarta Sans', 'Inter', system-ui, sans-serif",
+              fontWeight: 900,
+              fontSize: 34,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              padding: "12px 28px",
+              borderRadius: 999,
+              boxShadow: `0 10px 28px rgba(0,0,0,0.55), 0 0 20px ${config.accent_color}33`,
+            }}
+          >
+            {config.hook_badge}
+          </div>
+        </div>
+      )}
+
       {timestamps && timestamps.words.length > 0 && (
-        <DynamicCaptions words={timestamps.words} captionsY={1350} />
+        <DynamicCaptions
+          words={timestamps.words}
+          captionsY={1350}
+          accentColor={config.accent_color}
+          captionStyle={config.caption_style}
+        />
       )}
     </AbsoluteFill>
   );

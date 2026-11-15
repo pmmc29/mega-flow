@@ -211,6 +211,9 @@
               <button type="button" class="tab" role="tab" data-script-tab="elevenlabs">
                 ElevenLabs v3 / v4
               </button>
+              <button type="button" class="tab" role="tab" data-script-tab="remotion">
+                Estilo Remotion (JSON)
+              </button>
             </div>
 
             <div class="editor-wrap" id="script-panel-clean">
@@ -255,6 +258,26 @@
                   </button>
                   <button type="button" class="btn btn-primary btn-sm" id="btn-save-elevenlabs">
                     Guardar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-wrap hidden" id="script-panel-remotion">
+              <textarea
+                id="remotion-style-textarea"
+                rows="8"
+                class="mono-textarea"
+                placeholder='{&#10;  "hook_badge": "DATO OCULTO",&#10;  "accent_color": "#FBBF24",&#10;  "caption_style": "bold_outline",&#10;  "vignette": 0.3,&#10;  "hook_shake": true,&#10;  "default_transition": "zoom_punch"&#10;}'
+                aria-label="Dirección visual de Remotion en JSON"
+              ></textarea>
+              <div class="editor-meta">
+                <span class="meta-text">
+                  Opcional: si está vacío, Remotion usa el preset del tono seleccionado.
+                </span>
+                <div class="editor-actions">
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-save-remotion-style">
+                    Guardar estilo
                   </button>
                 </div>
               </div>

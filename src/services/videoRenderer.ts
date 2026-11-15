@@ -6,7 +6,12 @@ import { bundle } from "@remotion/bundler";
 import { renderMedia, selectComposition } from "@remotion/renderer";
 import { PATHS } from "../config/styleConfig.js";
 import type { MainCompositionProps } from "../remotion/MainComposition.js";
-import type { Storyboard, TranscriptionResult } from "../types/pipeline.js";
+import { mergeVisualConfig } from "../remotion/presets.js";
+import type {
+  RemotionVisualConfig,
+  Storyboard,
+  TranscriptionResult,
+} from "../types/pipeline.js";
 
 export interface RenderVideoOptions {
   storyboardPath?: string;
@@ -15,6 +20,8 @@ export interface RenderVideoOptions {
   voiceoverPath?: string;
   bgMusicPath?: string;
   watermarkPath?: string;
+  remotionStylePath?: string;
+  projectTone?: string;
   outputPath?: string;
 }
 
@@ -52,6 +59,21 @@ export async function renderFinalVideo(
       await fsp.readFile(timestampsPath, "utf-8"),
     ) as TranscriptionResult;
   }
+
+  let customVisual: Partial<RemotionVisualConfig> | null = null;
+  if (options.remotionStylePath && fs.existsSync(options.remotionStylePath)) {
+    try {
+      const rawStyle = await fsp.readFile(options.remotionStylePath, "utf-8");
+      if (rawStyle.trim()) {
+        customVisual = JSON.parse(rawStyle) as Partial<RemotionVisualConfig>;
+      }
+    } catch (err) {
+      console.warn(
+        `[VideoRenderer] No se pudo parsear remotion_style.json (${err instanceof Error ? err.message : err}); usando preset del tono.`,
+      );
+    }
+  }
+  const visualConfig = mergeVisualConfig(options.projectTone, customVisual);
 
   const hasVoiceover = fs.existsSync(voiceoverPath);
   const hasBgMusic = fs.existsSync(bgMusicPath);
@@ -92,6 +114,7 @@ export async function renderFinalVideo(
       hasVoiceover,
       hasBgMusic,
       hasWatermark,
+      visualConfig,
     };
 
     const composition = await selectComposition({

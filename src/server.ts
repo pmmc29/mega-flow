@@ -11,6 +11,7 @@ import {
   listProjects,
   setActiveProject,
   touchProject,
+  updateProjectTone,
 } from "./config/projectManager.js";
 import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
@@ -86,15 +87,23 @@ app.get("/api/status", async (_req, res) => {
     listProjects(),
   ]);
 
-  const [scriptMeta, scriptElevenLabsMeta, voiceover, characterRef, bgMusic, watermark] =
-    await Promise.all([
-      getFileMeta(projectPaths.script),
-      getFileMeta(projectPaths.scriptElevenLabs),
-      getFileMeta(projectPaths.voiceover),
-      getFileMeta(PATHS.characterRef),
-      getFileMeta(PATHS.bgMusic),
-      getFileMeta(PATHS.watermark),
-    ]);
+  const [
+    scriptMeta,
+    scriptElevenLabsMeta,
+    remotionStyleMeta,
+    voiceover,
+    characterRef,
+    bgMusic,
+    watermark,
+  ] = await Promise.all([
+    getFileMeta(projectPaths.script),
+    getFileMeta(projectPaths.scriptElevenLabs),
+    getFileMeta(projectPaths.remotionStyle),
+    getFileMeta(projectPaths.voiceover),
+    getFileMeta(PATHS.characterRef),
+    getFileMeta(PATHS.bgMusic),
+    getFileMeta(PATHS.watermark),
+  ]);
 
   let scriptContent = "";
   if (scriptMeta.exists) {
@@ -104,6 +113,11 @@ app.get("/api/status", async (_req, res) => {
   let scriptElevenLabsContent = "";
   if (scriptElevenLabsMeta.exists) {
     scriptElevenLabsContent = await fsp.readFile(projectPaths.scriptElevenLabs, "utf-8");
+  }
+
+  let remotionStyleContent = "";
+  if (remotionStyleMeta.exists) {
+    remotionStyleContent = await fsp.readFile(projectPaths.remotionStyle, "utf-8");
   }
 
   const [timestamps, storyboard, scriptStructure, finalVideo] = await Promise.all([
@@ -130,6 +144,7 @@ app.get("/api/status", async (_req, res) => {
     files: {
       script: { ...scriptMeta, content: scriptContent },
       scriptElevenLabs: { ...scriptElevenLabsMeta, content: scriptElevenLabsContent },
+      remotionStyle: { ...remotionStyleMeta, content: remotionStyleContent },
       voiceover,
       characterRef,
       bgMusic,
@@ -208,21 +223,96 @@ app.delete("/api/projects/:slug", async (req, res) => {
   }
 });
 
-app.post("/api/script/generate", (req, res) => {
+app.post("/api/projects/tone", async (req, res) => {
+  const { tone } = req.body ?? {};
+  if (!tone || typeof tone !== "string" || !tone.trim()) {
+    res.status(400).json({ error: "Selecciona un tono válido." });
+    return;
+  }
+
+  try {
+    const { meta } = await getActiveProject();
+    const updated = await updateProjectTone(meta.slug, tone.trim());
+    res.json({ ok: true, project: updated });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "No se pudo guardar el tono del proyecto.",
+    });
+  }
+});
+
+app.post("/api/script/generate", async (req, res) => {
   const { topic, durationSeconds, tone, customInstructions } = req.body ?? {};
   if (!topic || typeof topic !== "string" || !topic.trim()) {
     res.status(400).json({ error: "Escribe un tema o idea para armar el prompt." });
     return;
   }
 
+  const resolvedTone =
+    typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico";
+
+  try {
+    const { meta } = await getActiveProject();
+    await updateProjectTone(meta.slug, resolvedTone);
+  } catch {
+    // Non-fatal if project metadata update fails
+  }
+
   const prompt = buildRetentionScriptPrompt({
     topic: topic.trim(),
     durationSeconds: Number(durationSeconds) || 45,
-    tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
+    tone: resolvedTone,
     customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
   });
 
   res.json({ ok: true, prompt });
+});
+
+app.post("/api/script/remotion-style", async (req, res) => {
+  const { content } = req.body ?? {};
+  if (typeof content !== "string") {
+    res.status(400).json({ error: "Envía el JSON de estilo Remotion." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const trimmed = content.trim();
+
+    if (!trimmed) {
+      if (fs.existsSync(paths.remotionStyle)) {
+        await fsp.unlink(paths.remotionStyle);
+      }
+      await touchProject(meta.slug);
+      res.json({ ok: true, content: "" });
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      res.status(400).json({
+        error: "El estilo Remotion no es un JSON válido. Revisa llaves, comillas y comas.",
+      });
+      return;
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      res.status(400).json({ error: "El estilo Remotion debe ser un objeto JSON { ... }." });
+      return;
+    }
+
+    const formatted = JSON.stringify(parsed, null, 2);
+    await fsp.mkdir(path.dirname(paths.remotionStyle), { recursive: true });
+    await fsp.writeFile(paths.remotionStyle, formatted, "utf-8");
+    await touchProject(meta.slug);
+    res.json({ ok: true, content: formatted });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al guardar el estilo Remotion.",
+    });
+  }
 });
 
 app.post("/api/script/elevenlabs", async (req, res) => {
@@ -404,6 +494,8 @@ app.post("/api/run/:step", async (req, res) => {
           voiceoverPath: paths.voiceover,
           bgMusicPath: PATHS.bgMusic,
           watermarkPath: PATHS.watermark,
+          remotionStylePath: paths.remotionStyle,
+          projectTone: meta.tone,
           outputPath: paths.finalVideo,
         });
       }

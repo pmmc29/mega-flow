@@ -1,6 +1,7 @@
 import React from "react";
 import { Composition } from "remotion";
 import { MainComposition, type MainCompositionProps } from "./MainComposition.js";
+import { getTonePreset } from "./presets.js";
 
 const DEFAULT_PROPS: MainCompositionProps = {
   storyboard: {
@@ -21,6 +22,7 @@ const DEFAULT_PROPS: MainCompositionProps = {
   hasVoiceover: false,
   hasBgMusic: false,
   hasWatermark: false,
+  visualConfig: getTonePreset(),
 };
 
 export const RemotionRoot: React.FC = () => {

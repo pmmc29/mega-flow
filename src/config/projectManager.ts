@@ -9,6 +9,7 @@ const ACTIVE_FILE = path.join(PROJECTS_DIR, ".active");
 export interface ProjectMeta {
   slug: string;
   name: string;
+  tone?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -26,6 +27,7 @@ export interface ProjectPaths {
   storyboard: string;
   scriptElevenLabs: string;
   scriptStructure: string;
+  remotionStyle: string;
   scenesDir: string;
   finalVideo: string;
 }
@@ -60,6 +62,7 @@ export function getProjectPaths(slug: string): ProjectPaths {
     storyboard: path.join(workspaceDir, "storyboard.json"),
     scriptElevenLabs: path.join(workspaceDir, "script_elevenlabs.txt"),
     scriptStructure: path.join(workspaceDir, "script_structure.json"),
+    remotionStyle: path.join(workspaceDir, "remotion_style.json"),
     scenesDir: path.join(workspaceDir, "scenes"),
     finalVideo: path.join(outputDir, "final_video.mp4"),
   };
@@ -239,4 +242,14 @@ export async function deleteProject(slug: string): Promise<ProjectMeta> {
   await fsp.writeFile(ACTIVE_FILE, nextActive.slug, "utf-8");
 
   return nextActive;
+}
+
+export async function updateProjectTone(slug: string, tone: string): Promise<ProjectMeta> {
+  const paths = getProjectPaths(slug);
+  const raw = await fsp.readFile(paths.metaFile, "utf-8");
+  const meta = JSON.parse(raw) as ProjectMeta;
+  meta.tone = tone;
+  meta.updatedAt = new Date().toISOString();
+  await fsp.writeFile(paths.metaFile, JSON.stringify(meta, null, 2), "utf-8");
+  return meta;
 }

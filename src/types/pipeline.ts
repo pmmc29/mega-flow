@@ -45,3 +45,16 @@ export interface GeneratedScript {
   clean_script: string;
   elevenlabs_script: string;
 }
+
+export type RemotionTransition = "cut" | "fade" | "slide_up" | "zoom_punch";
+export type CaptionStyle = "bold_outline" | "pill_dark" | "glow";
+
+export interface RemotionVisualConfig {
+  hook_badge?: string;
+  accent_color: string;
+  caption_style: CaptionStyle;
+  vignette: number;
+  hook_shake: boolean;
+  default_transition: RemotionTransition;
+  scene_transitions?: RemotionTransition[];
+}

@@ -49,6 +49,8 @@ async function runPipeline(): Promise<void> {
       voiceoverPath: paths.voiceover,
       bgMusicPath: PATHS.bgMusic,
       watermarkPath: PATHS.watermark,
+      remotionStylePath: paths.remotionStyle,
+      projectTone: meta.tone,
       outputPath: paths.finalVideo,
     });
   }

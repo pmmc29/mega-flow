@@ -219,6 +219,11 @@ async function fetchStatus() {
     deleteBtn.disabled = data.projects.length <= 1;
     deleteBtn.title =
       data.projects.length <= 1 ? "Debe existir al menos un proyecto" : "Eliminar este proyecto";
+
+    const toneSelect = $("#gen-tone");
+    if (toneSelect && data.activeProject.tone && document.activeElement !== toneSelect) {
+      toneSelect.value = data.activeProject.tone;
+    }
   }
 
   // Script
@@ -241,6 +246,11 @@ async function fetchStatus() {
   const elevenMeta = data.files.scriptElevenLabs;
   if (!elevenLabsDirty && elevenMeta) {
     $("#elevenlabs-textarea").value = elevenMeta.content || "";
+  }
+
+  const remotionMeta = data.files.remotionStyle;
+  if (!remotionStyleDirty && remotionMeta) {
+    $("#remotion-style-textarea").value = remotionMeta.content || "";
   }
 
   // Assets
@@ -469,6 +479,18 @@ function setupScriptGenerator() {
   closePromptBtn.addEventListener("click", () => {
     $("#prompt-output-wrap").classList.add("hidden");
   });
+
+  $("#gen-tone").addEventListener("change", async (e) => {
+    const tone = e.target.value;
+    const res = await fetch("/api/projects/tone", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tone }),
+    });
+    if (res.ok) {
+      showToast(`Tono del proyecto: ${tone}`);
+    }
+  });
 }
 
 function setupElevenLabsEditor() {
@@ -487,9 +509,42 @@ function setupElevenLabsEditor() {
       $$("[data-script-tab]").forEach((t) => t.classList.toggle("is-active", t === tab));
       $("#script-panel-clean").classList.toggle("hidden", target !== "clean");
       $("#script-panel-elevenlabs").classList.toggle("hidden", target !== "elevenlabs");
-      $("#script-file-label").textContent =
-        target === "clean" ? "input/script.txt" : "workspace/script_elevenlabs.txt";
+      $("#script-panel-remotion").classList.toggle("hidden", target !== "remotion");
+      const labelMap = {
+        clean: "input/script.txt",
+        elevenlabs: "workspace/script_elevenlabs.txt",
+        remotion: "workspace/remotion_style.json",
+      };
+      $("#script-file-label").textContent = labelMap[target] || "input/script.txt";
     });
+  });
+
+  const remotionTextarea = $("#remotion-style-textarea");
+  const saveRemotionBtn = $("#btn-save-remotion-style");
+
+  remotionTextarea.addEventListener("input", () => {
+    remotionStyleDirty = true;
+  });
+
+  saveRemotionBtn.addEventListener("click", async () => {
+    const res = await fetch("/api/script/remotion-style", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: remotionTextarea.value }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      showToast(json.error || "Error al guardar el estilo Remotion", true);
+      return;
+    }
+    remotionStyleDirty = false;
+    remotionTextarea.value = json.content || "";
+    showToast(
+      json.content
+        ? "Estilo Remotion guardado en workspace/remotion_style.json"
+        : "Estilo personalizado limpiado (se usará el preset del tono)",
+    );
+    await fetchStatus();
   });
 
   retagBtn.addEventListener("click", async () => {
@@ -585,6 +640,7 @@ function setupProjectSwitcher() {
   const resetLocalEditorState = () => {
     scriptDirty = false;
     elevenLabsDirty = false;
+    remotionStyleDirty = false;
     const audioVo = $("#audio-voiceover");
     if (audioVo) audioVo.dataset.loadedAt = "";
   };
