@@ -420,15 +420,38 @@ app.post("/api/upload/script", upload.single("file"), async (req, res) => {
 app.post("/api/music/prompt", async (req, res) => {
   const { topic, durationSeconds, tone } = req.body ?? {};
   try {
-    const { meta } = await getActiveProject();
+    const { meta, paths } = await getActiveProject();
+    if (!fs.existsSync(paths.script)) {
+      res.status(400).json({
+        error: "Primero aplica y guarda el guion y estilo 3 en 1.",
+      });
+      return;
+    }
+
+    const scriptText = (await fsp.readFile(paths.script, "utf-8")).trim();
+    if (!scriptText) {
+      res.status(400).json({
+        error: "El guion está vacío. Primero aplica y guarda el guion y estilo 3 en 1.",
+      });
+      return;
+    }
+
+    const remotionStyle = await readJsonSafe<{
+      hook_badge?: string;
+      vignette?: number;
+      default_transition?: string;
+    }>(paths.remotionStyle);
+
     const resolvedTopic =
       typeof topic === "string" && topic.trim() ? topic.trim() : meta.name;
     const resolvedTone =
       typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone;
     const prompt = buildMusicPrompt({
       topic: resolvedTopic,
-      durationSeconds: Number(durationSeconds) || 45,
+      scriptText,
+      durationSeconds: Number(durationSeconds) || undefined,
       tone: resolvedTone,
+      remotionStyle,
     });
     res.json({ ok: true, prompt });
   } catch (err) {

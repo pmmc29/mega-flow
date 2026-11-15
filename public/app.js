@@ -309,6 +309,15 @@ async function fetchStatus() {
   // Readiness
   const hasScript = scriptMeta.exists && scriptMeta.content.trim().length > 0;
   const hasAudio = data.files.voiceover.exists;
+
+  const btnMusicPrompt = $("#btn-music-prompt");
+  if (btnMusicPrompt) {
+    btnMusicPrompt.disabled = !hasScript;
+    btnMusicPrompt.title = hasScript
+      ? "Generar prompt para Google Flow en base al guion guardado"
+      : "Primero aplica y guarda el guion y estilo 3 en 1";
+  }
+
   const readinessEl = $("#readiness-summary");
   if (hasScript && hasAudio) {
     readinessEl.textContent = "Listo (guion + audio)";

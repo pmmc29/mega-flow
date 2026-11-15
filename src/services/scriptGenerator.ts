@@ -190,11 +190,19 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
 
 export function buildMusicPrompt(options: {
   topic: string;
+  scriptText: string;
   durationSeconds?: number;
   tone?: string;
+  remotionStyle?: {
+    hook_badge?: string;
+    vignette?: number;
+    default_transition?: string;
+  } | null;
 }): string {
   const tone = (options.tone || "curioso y dinámico").trim().toLowerCase();
-  const duration = options.durationSeconds || 45;
+  const words = options.scriptText.trim().split(/\s+/).filter(Boolean).length;
+  const estimatedDuration =
+    options.durationSeconds || Math.max(20, Math.round((words / 140) * 60));
 
   const moodByTone: Record<string, string> = {
     "curioso y dinámico":
@@ -208,5 +216,21 @@ export function buildMusicPrompt(options: {
   };
 
   const mood = moodByTone[tone] ?? moodByTone["curioso y dinámico"];
-  return `Instrumental background track for a ~${duration}s vertical explainer video about "${options.topic.trim()}". Style: ${mood}. Clean, uncluttered mix with space for a voiceover, steady loopable rhythm, NO vocals, NO lyrics, NO harsh leads.`;
+  const hookSnippet = options.scriptText.trim().replace(/\s+/g, " ").slice(0, 140);
+  const pacingHint =
+    options.remotionStyle?.default_transition === "zoom_punch" ||
+    options.remotionStyle?.default_transition === "cut"
+      ? "punchy modern pacing with subtle rhythmic lift"
+      : "smooth flowing progression with gentle build-up";
+  const atmosphereHint =
+    typeof options.remotionStyle?.vignette === "number" && options.remotionStyle.vignette >= 0.4
+      ? ", slightly dark cinematic atmosphere"
+      : "";
+
+  return [
+    `Instrumental background track (~${estimatedDuration}s) for a vertical explainer video about "${options.topic.trim()}".`,
+    `Script opening context: "${hookSnippet}..."`,
+    `Style: ${mood}${atmosphereHint}; ${pacingHint}.`,
+    `Clean, uncluttered mix leaving midrange space for Spanish voiceover, soft intro for the hook, steady loopable groove, NO vocals, NO lyrics, NO harsh leads.`,
+  ].join(" ");
 }
