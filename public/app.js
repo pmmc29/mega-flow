@@ -187,6 +187,18 @@ async function fetchStatus() {
   }
   updateChip("#chip-gemini", data.env.gemini, "Gemini API");
 
+  // Projects
+  if (data.activeProject && Array.isArray(data.projects)) {
+    const select = $("#project-select");
+    select.innerHTML = data.projects
+      .map(
+        (p) =>
+          `<option value="${p.slug}" ${p.slug === data.activeProject.slug ? "selected" : ""}>${p.name}</option>`,
+      )
+      .join("");
+    $("#active-project-path").textContent = `projects/${data.activeProject.slug}/`;
+  }
+
   // Script
   const scriptMeta = data.files.script;
   const scriptState = $("#state-script");
@@ -527,6 +539,73 @@ function setupTabs() {
   });
 }
 
+function setupProjectSwitcher() {
+  const select = $("#project-select");
+  const newBtn = $("#btn-new-project");
+  const cancelBtn = $("#btn-cancel-project");
+  const form = $("#new-project-form");
+  const nameInput = $("#new-project-name");
+
+  const resetLocalEditorState = () => {
+    scriptDirty = false;
+    elevenLabsDirty = false;
+    const audioVo = $("#audio-voiceover");
+    if (audioVo) audioVo.dataset.loadedAt = "";
+  };
+
+  select.addEventListener("change", async () => {
+    const slug = select.value;
+    const res = await fetch("/api/projects/select", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      showToast(json.error || "No se pudo cambiar de proyecto", true);
+      await fetchStatus();
+      return;
+    }
+    resetLocalEditorState();
+    showToast(`Proyecto activo: ${json.project.name}`);
+    await fetchStatus();
+  });
+
+  newBtn.addEventListener("click", () => {
+    form.classList.remove("hidden");
+    nameInput.focus();
+  });
+
+  cancelBtn.addEventListener("click", () => {
+    form.classList.add("hidden");
+    nameInput.value = "";
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = nameInput.value.trim();
+    if (!name) return;
+
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      showToast(json.error || "No se pudo crear el proyecto", true);
+      return;
+    }
+
+    form.classList.add("hidden");
+    nameInput.value = "";
+    resetLocalEditorState();
+    showToast(`Carpeta creada: projects/${json.project.slug}/`);
+    await fetchStatus();
+  });
+}
+
+setupProjectSwitcher();
 setupDropzones();
 setupScriptEditor();
 setupScriptGenerator();

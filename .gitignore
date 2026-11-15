@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+projects/
 workspace/scenes/*.png
 workspace/*.json
 output/*.mp4

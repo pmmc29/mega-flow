@@ -73,8 +73,15 @@ const ELEVENLABS_GUIDELINES = `Reglas para las etiquetas de audio de ElevenLabs 
 - NO alteres, traduzcas ni elimines ninguna palabra hablada del guion en español.
 - Usa entre 4 y 8 etiquetas bien distribuidas para que la locución suene natural y expresiva, sin saturar cada frase.`;
 
+export interface ScriptTargetPaths {
+  script: string;
+  scriptElevenLabs: string;
+  scriptStructure: string;
+}
+
 export async function generateRetentionScript(
   options: ScriptGenerationOptions,
+  targetPaths: ScriptTargetPaths = PATHS,
 ): Promise<GeneratedScript> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -128,17 +135,17 @@ ${ELEVENLABS_GUIDELINES}`;
   const generated = JSON.parse(response.text) as GeneratedScript;
 
   await Promise.all([
-    fsp.mkdir(path.dirname(PATHS.script), { recursive: true }),
-    fsp.mkdir(path.dirname(PATHS.scriptElevenLabs), { recursive: true }),
+    fsp.mkdir(path.dirname(targetPaths.script), { recursive: true }),
+    fsp.mkdir(path.dirname(targetPaths.scriptElevenLabs), { recursive: true }),
   ]);
 
   await Promise.all([
-    fsp.writeFile(PATHS.script, generated.clean_script, "utf-8"),
-    fsp.writeFile(PATHS.scriptElevenLabs, generated.elevenlabs_script, "utf-8"),
-    fsp.writeFile(PATHS.scriptStructure, JSON.stringify(generated, null, 2), "utf-8"),
+    fsp.writeFile(targetPaths.script, generated.clean_script, "utf-8"),
+    fsp.writeFile(targetPaths.scriptElevenLabs, generated.elevenlabs_script, "utf-8"),
+    fsp.writeFile(targetPaths.scriptStructure, JSON.stringify(generated, null, 2), "utf-8"),
   ]);
 
-  console.log(`[ScriptGenerator] Guion generado y guardado en input/script.txt y workspace/script_elevenlabs.txt`);
+  console.log(`[ScriptGenerator] Guion generado y guardado en ${targetPaths.script}`);
 
   return generated;
 }
@@ -146,6 +153,7 @@ ${ELEVENLABS_GUIDELINES}`;
 export async function tagScriptForElevenLabs(
   cleanScript: string,
   tone: string = "curioso y dinámico",
+  outputPath: string = PATHS.scriptElevenLabs,
 ): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -175,8 +183,8 @@ export async function tagScriptForElevenLabs(
 
   const parsed = JSON.parse(response.text) as { elevenlabs_script: string };
 
-  await fsp.mkdir(path.dirname(PATHS.scriptElevenLabs), { recursive: true });
-  await fsp.writeFile(PATHS.scriptElevenLabs, parsed.elevenlabs_script, "utf-8");
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  await fsp.writeFile(outputPath, parsed.elevenlabs_script, "utf-8");
 
   return parsed.elevenlabs_script;
 }

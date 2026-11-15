@@ -161,10 +161,81 @@ code {
 
 /* Main Layout */
 .main-content {
-  padding: 32px 0 64px;
+  padding: 28px 0 64px;
   display: flex;
   flex-direction: column;
-  gap: 40px;
+  gap: 36px;
+}
+
+.project-bar {
+  padding: 16px 20px;
+  gap: 12px;
+}
+
+.project-bar-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.project-controls select {
+  min-width: 240px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-canvas);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.project-path-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.new-project-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+  flex-wrap: wrap;
+}
+
+.new-project-form input {
+  flex: 1;
+  min-width: 240px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-canvas);
+  font-family: var(--font-sans);
+  font-size: 0.88rem;
+}
+
+.new-project-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--bg-surface);
 }
 
 .section-block {

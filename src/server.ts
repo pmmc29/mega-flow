@@ -4,6 +4,13 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import express from "express";
 import multer from "multer";
+import {
+  createProject,
+  getActiveProject,
+  listProjects,
+  setActiveProject,
+  touchProject,
+} from "./config/projectManager.js";
 import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
@@ -26,13 +33,6 @@ const upload = multer({
 });
 
 type AssetKey = "voiceover" | "characterRef" | "bgMusic" | "watermark";
-
-const ASSET_PATH_MAP: Record<AssetKey, string> = {
-  voiceover: PATHS.voiceover,
-  characterRef: PATHS.characterRef,
-  bgMusic: PATHS.bgMusic,
-  watermark: PATHS.watermark,
-};
 
 interface JobState {
   running: boolean;
@@ -79,11 +79,16 @@ async function readJsonSafe<T>(filePath: string): Promise<T | null> {
 }
 
 app.get("/api/status", async (_req, res) => {
+  const [{ meta: activeProject, paths: projectPaths }, projects] = await Promise.all([
+    getActiveProject(),
+    listProjects(),
+  ]);
+
   const [scriptMeta, scriptElevenLabsMeta, voiceover, characterRef, bgMusic, watermark] =
     await Promise.all([
-      getFileMeta(PATHS.script),
-      getFileMeta(PATHS.scriptElevenLabs),
-      getFileMeta(PATHS.voiceover),
+      getFileMeta(projectPaths.script),
+      getFileMeta(projectPaths.scriptElevenLabs),
+      getFileMeta(projectPaths.voiceover),
       getFileMeta(PATHS.characterRef),
       getFileMeta(PATHS.bgMusic),
       getFileMeta(PATHS.watermark),
@@ -91,23 +96,23 @@ app.get("/api/status", async (_req, res) => {
 
   let scriptContent = "";
   if (scriptMeta.exists) {
-    scriptContent = await fsp.readFile(PATHS.script, "utf-8");
+    scriptContent = await fsp.readFile(projectPaths.script, "utf-8");
   }
 
   let scriptElevenLabsContent = "";
   if (scriptElevenLabsMeta.exists) {
-    scriptElevenLabsContent = await fsp.readFile(PATHS.scriptElevenLabs, "utf-8");
+    scriptElevenLabsContent = await fsp.readFile(projectPaths.scriptElevenLabs, "utf-8");
   }
 
   const [timestamps, storyboard, scriptStructure] = await Promise.all([
-    readJsonSafe<TranscriptionResult>(PATHS.timestamps),
-    readJsonSafe<Storyboard>(PATHS.storyboard),
-    readJsonSafe<GeneratedScript>(PATHS.scriptStructure),
+    readJsonSafe<TranscriptionResult>(projectPaths.timestamps),
+    readJsonSafe<Storyboard>(projectPaths.storyboard),
+    readJsonSafe<GeneratedScript>(projectPaths.scriptStructure),
   ]);
 
   let scenes: string[] = [];
-  if (fs.existsSync(PATHS.scenesDir)) {
-    const entries = await fsp.readdir(PATHS.scenesDir);
+  if (fs.existsSync(projectPaths.scenesDir)) {
+    const entries = await fsp.readdir(projectPaths.scenesDir);
     scenes = entries.filter((f) => f.endsWith(".png")).sort();
   }
 
@@ -117,6 +122,8 @@ app.get("/api/status", async (_req, res) => {
       gemini: Boolean(process.env.GEMINI_API_KEY),
       transcriberProvider: process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local",
     },
+    activeProject,
+    projects,
     files: {
       script: { ...scriptMeta, content: scriptContent },
       scriptElevenLabs: { ...scriptElevenLabsMeta, content: scriptElevenLabsContent },
@@ -135,6 +142,46 @@ app.get("/api/status", async (_req, res) => {
   });
 });
 
+app.post("/api/projects", async (req, res) => {
+  const { name } = req.body ?? {};
+  if (!name || typeof name !== "string" || !name.trim()) {
+    res.status(400).json({ error: "Escribe un tema o etiqueta para el nuevo video." });
+    return;
+  }
+
+  if (jobState.running) {
+    res.status(409).json({ error: "Espera a que termine la ejecución actual antes de cambiar de proyecto." });
+    return;
+  }
+
+  try {
+    const created = await createProject(name);
+    res.json({ ok: true, project: created.meta });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error al crear proyecto" });
+  }
+});
+
+app.post("/api/projects/select", async (req, res) => {
+  const { slug } = req.body ?? {};
+  if (!slug || typeof slug !== "string") {
+    res.status(400).json({ error: "Falta el identificador del proyecto." });
+    return;
+  }
+
+  if (jobState.running) {
+    res.status(409).json({ error: "Espera a que termine la ejecución actual antes de cambiar de proyecto." });
+    return;
+  }
+
+  try {
+    const selected = await setActiveProject(slug);
+    res.json({ ok: true, project: selected });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : "Proyecto no encontrado" });
+  }
+});
+
 app.post("/api/script/generate", async (req, res) => {
   const { topic, durationSeconds, tone, customInstructions } = req.body ?? {};
   if (!topic || typeof topic !== "string" || !topic.trim()) {
@@ -143,12 +190,17 @@ app.post("/api/script/generate", async (req, res) => {
   }
 
   try {
-    const generated = await generateRetentionScript({
-      topic: topic.trim(),
-      durationSeconds: Number(durationSeconds) || 45,
-      tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
-      customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
-    });
+    const { meta, paths } = await getActiveProject();
+    const generated = await generateRetentionScript(
+      {
+        topic: topic.trim(),
+        durationSeconds: Number(durationSeconds) || 45,
+        tone: typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico",
+        customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
+      },
+      paths,
+    );
+    await touchProject(meta.slug);
     res.json({ ok: true, generated });
   } catch (err) {
     res.status(500).json({
@@ -161,16 +213,20 @@ app.post("/api/script/elevenlabs", async (req, res) => {
   const { content, regenerate, tone } = req.body ?? {};
 
   try {
+    const { meta, paths } = await getActiveProject();
+
     if (regenerate) {
-      if (!fs.existsSync(PATHS.script)) {
-        res.status(400).json({ error: "Primero escribe o genera un guion en input/script.txt." });
+      if (!fs.existsSync(paths.script)) {
+        res.status(400).json({ error: "Primero escribe o genera un guion limpio." });
         return;
       }
-      const cleanScript = await fsp.readFile(PATHS.script, "utf-8");
+      const cleanScript = await fsp.readFile(paths.script, "utf-8");
       const tagged = await tagScriptForElevenLabs(
         cleanScript,
         typeof tone === "string" ? tone : undefined,
+        paths.scriptElevenLabs,
       );
+      await touchProject(meta.slug);
       res.json({ ok: true, content: tagged });
       return;
     }
@@ -180,8 +236,9 @@ app.post("/api/script/elevenlabs", async (req, res) => {
       return;
     }
 
-    await fsp.mkdir(path.dirname(PATHS.scriptElevenLabs), { recursive: true });
-    await fsp.writeFile(PATHS.scriptElevenLabs, content, "utf-8");
+    await fsp.mkdir(path.dirname(paths.scriptElevenLabs), { recursive: true });
+    await fsp.writeFile(paths.scriptElevenLabs, content, "utf-8");
+    await touchProject(meta.slug);
     res.json({ ok: true, content });
   } catch (err) {
     res.status(500).json({
@@ -202,19 +259,32 @@ app.post("/api/upload/script", upload.single("file"), async (req, res) => {
       return;
     }
 
-    await fsp.mkdir(path.dirname(PATHS.script), { recursive: true });
-    await fsp.writeFile(PATHS.script, content, "utf-8");
+    const { meta, paths } = await getActiveProject();
+    await fsp.mkdir(path.dirname(paths.script), { recursive: true });
+    await fsp.writeFile(paths.script, content, "utf-8");
+    await touchProject(meta.slug);
     res.json({ ok: true, bytes: Buffer.byteLength(content, "utf-8") });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Error al guardar el guion" });
   }
 });
 
+async function resolveAssetPath(assetType: AssetKey): Promise<string> {
+  if (assetType === "voiceover") {
+    const { paths } = await getActiveProject();
+    return paths.voiceover;
+  }
+  const brandMap: Record<Exclude<AssetKey, "voiceover">, string> = {
+    characterRef: PATHS.characterRef,
+    bgMusic: PATHS.bgMusic,
+    watermark: PATHS.watermark,
+  };
+  return brandMap[assetType];
+}
+
 app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
   const assetType = req.params.assetType as AssetKey;
-  const targetPath = ASSET_PATH_MAP[assetType];
-
-  if (!targetPath) {
+  if (!["voiceover", "characterRef", "bgMusic", "watermark"].includes(assetType)) {
     res.status(400).json({ error: `Tipo de archivo no válido: ${assetType}` });
     return;
   }
@@ -225,8 +295,13 @@ app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
   }
 
   try {
+    const targetPath = await resolveAssetPath(assetType);
     await fsp.mkdir(path.dirname(targetPath), { recursive: true });
     await fsp.writeFile(targetPath, req.file.buffer);
+    if (assetType === "voiceover") {
+      const { meta } = await getActiveProject();
+      await touchProject(meta.slug);
+    }
     res.json({ ok: true, size: req.file.size });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Error al guardar el archivo" });
@@ -235,14 +310,16 @@ app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
 
 app.delete("/api/upload/:assetType", async (req, res) => {
   const assetType = req.params.assetType as AssetKey | "script";
-  const targetPath = assetType === "script" ? PATHS.script : ASSET_PATH_MAP[assetType as AssetKey];
-
-  if (!targetPath) {
+  if (!["script", "voiceover", "characterRef", "bgMusic", "watermark"].includes(assetType)) {
     res.status(400).json({ error: "Tipo de archivo no válido." });
     return;
   }
 
   try {
+    const { paths } = await getActiveProject();
+    const targetPath =
+      assetType === "script" ? paths.script : await resolveAssetPath(assetType as AssetKey);
+
     if (fs.existsSync(targetPath)) {
       await fsp.unlink(targetPath);
     }
@@ -252,7 +329,7 @@ app.delete("/api/upload/:assetType", async (req, res) => {
   }
 });
 
-app.post("/api/run/:step", (req, res) => {
+app.post("/api/run/:step", async (req, res) => {
   const step = req.params.step;
   if (!["transcribe", "direct", "images", "all"].includes(step)) {
     res.status(400).json({ error: "Paso inválido." });
@@ -263,6 +340,8 @@ app.post("/api/run/:step", (req, res) => {
     res.status(409).json({ error: "Ya hay una ejecución en curso." });
     return;
   }
+
+  const { meta, paths } = await getActiveProject();
 
   jobState.running = true;
   jobState.step = step;
@@ -285,24 +364,25 @@ app.post("/api/run/:step", (req, res) => {
 
   void (async () => {
     try {
-      appendLog(`Iniciando ejecución: ${step}`);
+      appendLog(`[${meta.name}] Iniciando ejecución: ${step}`);
       if (step === "transcribe") {
-        await transcribeVoiceover();
+        await transcribeVoiceover(paths.voiceover, paths.timestamps);
       } else if (step === "all") {
-        if (fs.existsSync(PATHS.voiceover)) {
-          await transcribeVoiceover();
+        if (fs.existsSync(paths.voiceover)) {
+          await transcribeVoiceover(paths.voiceover, paths.timestamps);
         } else {
           appendLog(
-            "[Pipeline] Sin audio en input/voiceover.mp3; omitiendo transcripción y usando duración estimada del guion.",
+            "[Pipeline] Sin audio de locución en este proyecto; omitiendo transcripción y usando duración estimada del guion.",
           );
         }
       }
       if (step === "direct" || step === "all") {
-        await generateStoryboard();
+        await generateStoryboard(paths.script, paths.timestamps, paths.storyboard);
       }
       if (step === "images" || step === "all") {
-        await generateSceneImages();
+        await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
       }
+      await touchProject(meta.slug);
       appendLog("Ejecución completada con éxito.");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -319,10 +399,18 @@ app.post("/api/run/:step", (req, res) => {
   res.json({ ok: true, started: step });
 });
 
-// Media preview endpoints
-app.get("/media/voiceover", (_req, res) => {
-  if (!fs.existsSync(PATHS.voiceover)) return res.status(404).end();
-  res.sendFile(PATHS.voiceover);
+// Media preview endpoints (per active project for voiceover & scenes; shared for brand assets)
+app.get("/media/voiceover", async (_req, res) => {
+  const { paths } = await getActiveProject();
+  if (!fs.existsSync(paths.voiceover)) return res.status(404).end();
+  res.sendFile(paths.voiceover);
+});
+app.get("/media/scenes/:filename", async (req, res) => {
+  const { paths } = await getActiveProject();
+  const safeName = path.basename(req.params.filename);
+  const filePath = path.join(paths.scenesDir, safeName);
+  if (!fs.existsSync(filePath)) return res.status(404).end();
+  res.sendFile(filePath);
 });
 app.get("/media/character_ref", (_req, res) => {
   if (!fs.existsSync(PATHS.characterRef)) return res.status(404).end();
@@ -336,7 +424,6 @@ app.get("/media/watermark", (_req, res) => {
   if (!fs.existsSync(PATHS.watermark)) return res.status(404).end();
   res.sendFile(PATHS.watermark);
 });
-app.use("/media/scenes", express.static(PATHS.scenesDir));
 
 app.listen(PORT, () => {
   console.log(`Mega Studio disponible en http://localhost:${PORT}`);

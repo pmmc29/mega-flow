@@ -1,5 +1,6 @@
 import "dotenv/config";
 import fs from "node:fs";
+import { getActiveProject } from "./config/projectManager.js";
 import { PATHS } from "./config/styleConfig.js";
 import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
@@ -9,27 +10,28 @@ type PipelineStep = "transcribe" | "direct" | "images" | "all";
 
 async function runPipeline(): Promise<void> {
   const stepArg = (process.argv[2] as PipelineStep | undefined) ?? "all";
+  const { meta, paths } = await getActiveProject();
 
-  console.log("=== Mega Explains Pipeline (Pasos 1-3) ===");
+  console.log(`=== Mega Studio Pipeline (Proyecto: ${meta.name} [${meta.slug}]) ===`);
 
   if (stepArg === "transcribe") {
-    await transcribeVoiceover();
+    await transcribeVoiceover(paths.voiceover, paths.timestamps);
   } else if (stepArg === "all") {
-    if (fs.existsSync(PATHS.voiceover)) {
-      await transcribeVoiceover();
+    if (fs.existsSync(paths.voiceover)) {
+      await transcribeVoiceover(paths.voiceover, paths.timestamps);
     } else {
       console.log(
-        "[Pipeline] Sin audio en input/voiceover.mp3; omitiendo transcripción y generando storyboard desde el guion.",
+        `[Pipeline] Sin audio en projects/${meta.slug}/input/voiceover.mp3; omitiendo transcripción y generando storyboard desde el guion.`,
       );
     }
   }
 
   if (stepArg === "direct" || stepArg === "all") {
-    await generateStoryboard();
+    await generateStoryboard(paths.script, paths.timestamps, paths.storyboard);
   }
 
   if (stepArg === "images" || stepArg === "all") {
-    await generateSceneImages();
+    await generateSceneImages(paths.storyboard, PATHS.characterRef, paths.scenesDir);
   }
 
   if (!["transcribe", "direct", "images", "all"].includes(stepArg)) {

@@ -43,6 +43,38 @@
     </header>
 
     <main class="container main-content">
+      <!-- Selector de Proyecto / Video -->
+      <section class="project-bar card" aria-label="Proyecto de video activo">
+        <div class="project-bar-main">
+          <div class="project-info">
+            <span class="step-label">Video Activo</span>
+            <div class="project-controls">
+              <select id="project-select" aria-label="Seleccionar proyecto de video"></select>
+              <button type="button" class="btn btn-secondary btn-sm" id="btn-new-project">
+                + Nuevo Video
+              </button>
+            </div>
+          </div>
+          <div class="project-path-wrap">
+            <span class="meta-text">Carpeta aislada:</span>
+            <code class="file-path" id="active-project-path">projects/proyecto-inicial/</code>
+          </div>
+        </div>
+
+        <form class="new-project-form hidden" id="new-project-form">
+          <input
+            id="new-project-name"
+            type="text"
+            placeholder="Tema o etiqueta del nuevo video (ej. Por qué el café da sueño)"
+            required
+          />
+          <button type="submit" class="btn btn-primary btn-sm">Crear carpeta</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-project">
+            Cancelar
+          </button>
+        </form>
+      </section>
+
       <!-- Paso 1: Archivos de entrada principales -->
       <section class="section-block" aria-labelledby="heading-inputs">
         <div class="section-header">
