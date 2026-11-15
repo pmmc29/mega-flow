@@ -32,9 +32,9 @@ export const SAFE_ZONES = {
 
 export const MODELS = {
   transcriber: "whisper-1",
-  sceneDirector: "gemini-2.5-flash",
-  characterImage: "gemini-3-pro-image-preview",
-  conceptImage: "gemini-2.5-flash-image",
+  sceneDirector: process.env.GEMINI_TEXT_MODEL || "gemini-3.8-flash",
+  characterImage: process.env.GEMINI_CHARACTER_IMAGE_MODEL || "gemini-3-pro-image-preview",
+  conceptImage: process.env.GEMINI_CONCEPT_IMAGE_MODEL || "gemini-2.5-flash-image",
 } as const;
 
 export const STYLE_ANCHOR = [
