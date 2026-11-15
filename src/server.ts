@@ -18,6 +18,7 @@ import { transcribeVoiceover } from "./services/transcriber.js";
 import { generateStoryboard } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
 import { renderFinalVideo } from "./services/videoRenderer.js";
+import { checkAceStepHealth, generateAceStepMusic } from "./services/musicGenerator.js";
 import {
   buildElevenLabsTagPrompt,
   buildMusicPrompt,
@@ -131,11 +132,12 @@ app.get("/api/status", async (_req, res) => {
     remotionStyleContent = await fsp.readFile(projectPaths.remotionStyle, "utf-8");
   }
 
-  const [timestamps, storyboard, scriptStructure, finalVideo] = await Promise.all([
+  const [timestamps, storyboard, scriptStructure, finalVideo, aceStep] = await Promise.all([
     readJsonSafe<TranscriptionResult>(projectPaths.timestamps),
     readJsonSafe<Storyboard>(projectPaths.storyboard),
     readJsonSafe<GeneratedScript>(projectPaths.scriptStructure),
     getFileMeta(projectPaths.finalVideo),
+    checkAceStepHealth(),
   ]);
 
   let scenes: string[] = [];
@@ -149,6 +151,7 @@ app.get("/api/status", async (_req, res) => {
       openai: Boolean(process.env.OPENAI_API_KEY),
       gemini: Boolean(process.env.GEMINI_API_KEY),
       transcriberProvider: process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local",
+      aceStep,
     },
     activeProject,
     projects,
@@ -457,6 +460,66 @@ app.post("/api/music/prompt", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Error al armar el prompt musical.",
+    });
+  }
+});
+
+app.post("/api/music/generate-acestep", async (req, res) => {
+  const { topic, durationSeconds, tone, prompt: customPrompt } = req.body ?? {};
+  try {
+    const { meta, paths } = await getActiveProject();
+    if (!fs.existsSync(paths.script)) {
+      res.status(400).json({
+        error: "Primero aplica y guarda el guion y estilo 3 en 1.",
+      });
+      return;
+    }
+
+    const scriptText = (await fsp.readFile(paths.script, "utf-8")).trim();
+    if (!scriptText) {
+      res.status(400).json({
+        error: "El guion está vacío. Primero aplica y guarda el guion y estilo 3 en 1.",
+      });
+      return;
+    }
+
+    const remotionStyle = await readJsonSafe<{
+      hook_badge?: string;
+      vignette?: number;
+      default_transition?: string;
+    }>(paths.remotionStyle);
+
+    const words = scriptText.split(/\s+/).filter(Boolean).length;
+    const resolvedDuration =
+      Number(durationSeconds) || Math.max(20, Math.round((words / 140) * 60));
+
+    const resolvedPrompt =
+      typeof customPrompt === "string" && customPrompt.trim()
+        ? customPrompt.trim()
+        : buildMusicPrompt({
+            topic: typeof topic === "string" && topic.trim() ? topic.trim() : meta.name,
+            scriptText,
+            durationSeconds: resolvedDuration,
+            tone: typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone,
+            remotionStyle,
+          });
+
+    const result = await generateAceStepMusic({
+      prompt: resolvedPrompt,
+      durationSeconds: resolvedDuration,
+      outputPath: paths.bgMusic,
+    });
+
+    await touchProject(meta.slug);
+    res.json({
+      ok: true,
+      prompt: resolvedPrompt,
+      size: result.size,
+      taskId: result.taskId,
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al generar música con ACE-Step 1.5.",
     });
   }
 });

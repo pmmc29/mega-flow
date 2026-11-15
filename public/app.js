@@ -310,12 +310,33 @@ async function fetchStatus() {
   const hasScript = scriptMeta.exists && scriptMeta.content.trim().length > 0;
   const hasAudio = data.files.voiceover.exists;
 
+  const aceStepAvailable = Boolean(data.env?.aceStep?.available);
+  const aceStepStatusEl = $("#acestep-status");
+  if (aceStepStatusEl) {
+    aceStepStatusEl.textContent = aceStepAvailable
+      ? "ACE-Step 1.5: Conectado"
+      : "ACE-Step 1.5: Apagado · Google Flow disponible";
+  }
+
   const btnMusicPrompt = $("#btn-music-prompt");
   if (btnMusicPrompt) {
     btnMusicPrompt.disabled = !hasScript;
     btnMusicPrompt.title = hasScript
-      ? "Generar prompt para Google Flow en base al guion guardado"
+      ? "Generar prompt para Google Flow / ACE-Step en base al guion guardado"
       : "Primero aplica y guarda el guion y estilo 3 en 1";
+  }
+
+  const btnGenerateAceStep = $("#btn-generate-acestep");
+  if (btnGenerateAceStep) {
+    btnGenerateAceStep.disabled = !hasScript || !aceStepAvailable;
+    if (!hasScript) {
+      btnGenerateAceStep.title = "Primero aplica y guarda el guion y estilo 3 en 1";
+    } else if (!aceStepAvailable) {
+      btnGenerateAceStep.title =
+        "Inicia ACE-Step 1.5 localmente con: uv run acestep-api (puerto 8001)";
+    } else {
+      btnGenerateAceStep.title = "Generar pista instrumental local con ACE-Step 1.5";
+    }
   }
 
   const readinessEl = $("#readiness-summary");
@@ -780,6 +801,48 @@ function setupMusicPrompt() {
     await navigator.clipboard.writeText(area.value);
     showToast("Prompt musical copiado al portapapeles");
   });
+
+  const aceBtn = $("#btn-generate-acestep");
+  if (aceBtn) {
+    aceBtn.addEventListener("click", async () => {
+      aceBtn.disabled = true;
+      aceBtn.textContent = "Generando...";
+      try {
+        const topic = $("#gen-topic")?.value.trim() || "";
+        const durationSeconds = Number($("#gen-duration")?.value) || undefined;
+        const tone = $("#gen-tone")?.value || "";
+        const customPrompt = area.value.trim();
+
+        const res = await fetch("/api/music/generate-acestep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic,
+            durationSeconds,
+            tone,
+            ...(customPrompt ? { prompt: customPrompt } : {}),
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "Error al generar música con ACE-Step 1.5", true);
+          return;
+        }
+
+        if (json.prompt) {
+          area.value = json.prompt;
+          area.classList.remove("hidden");
+          copyBtn.classList.remove("hidden");
+        }
+        resetAssetPreviewCache("bgMusic");
+        showToast(`Música generada con ACE-Step (${formatBytes(json.size)})`);
+        await fetchStatus();
+      } finally {
+        aceBtn.disabled = false;
+        aceBtn.textContent = "Generar con ACE-Step";
+      }
+    });
+  }
 }
 
 setupProjectSwitcher();
