@@ -35,27 +35,32 @@ export function buildRetentionScriptPrompt(options: ScriptGenerationOptions): st
     "",
     ELEVENLABS_TAG_GUIDE,
     "",
-    `Formato de respuesta obligatorio (entrégamelo en exactamente estas tres secciones listas para copiar y pegar):`,
+    `Formato de respuesta OBLIGATORIO:`,
+    `- Devuelve TODA tu respuesta dentro de UN ÚNICO bloque de código (\`\`\`text ... \`\`\`) para que pueda copiarlo con un solo clic.`,
+    `- No escribas explicaciones ni texto fuera de ese bloque.`,
+    `- Dentro de ese único bloque, usa exactamente estos tres separadores en este orden:`,
     ``,
-    `=== 1. GUION LIMPIO (pegar en Mega Studio -> Guion Limpio) ===`,
-    `(Solo el texto hablado en español, fluido, sin títulos de bloques ni etiquetas entre corchetes).`,
+    `\`\`\`text`,
+    `=== GUION_LIMPIO ===`,
+    `(Solo el texto hablado en español, fluido, sin títulos de bloques ni etiquetas entre corchetes)`,
     ``,
-    `=== 2. GUION ELEVENLABS V3/V4 (pegar en Mega Studio -> ElevenLabs v3/v4) ===`,
-    `(Exactamente el mismo texto hablado en español, pero con las etiquetas de audio [curious], [whispers], [laughs], etc. insertadas en los momentos clave).`,
+    `=== ELEVENLABS ===`,
+    `(Exactamente el mismo texto hablado en español, pero con las etiquetas de audio [curious], [whispers], [laughs], etc. insertadas en los momentos clave)`,
     ``,
-    `=== 3. DIRECCIÓN VISUAL REMOTION (JSON) (pegar en Mega Studio -> Estilo Remotion) ===`,
-    `(Devuelve ÚNICAMENTE un bloque JSON válido sin comentarios, adaptado al tema, duración y tono "${options.tone}" del video, usando exactamente estas claves):`,
+    `=== REMOTION_JSON ===`,
     `{`,
     `  "hook_badge": "TEXTO CORTO (2-4 palabras gancho para los primeros 2.6s, ej: DATO OCULTO)",`,
-    `  "accent_color": "#HEX_COLOR (color principal de subtítulos activos y badge acorde al tema/tono)",`,
+    `  "accent_color": "#HEX_COLOR",`,
     `  "caption_style": "bold_outline | pill_dark | glow",`,
     `  "vignette": 0.35,`,
     `  "hook_shake": true,`,
     `  "default_transition": "cut | fade | slide_up | zoom_punch",`,
     `  "scene_transitions": ["zoom_punch", "cut", "slide_up"]`,
     `}`,
-    `Notas del JSON:`,
-    `- "vignette" es un número entre 0 y 0.8 (0 = sin viñeta, 0.55 = ambiente oscuro/misterio).`,
+    `\`\`\``,
+    ``,
+    `Notas para REMOTION_JSON (JSON válido sin comentarios, adaptado al tema, duración y tono "${options.tone}"):`,
+    `- "vignette": número entre 0 y 0.8 (0 = sin viñeta, 0.55 = ambiente oscuro/misterio).`,
     `- "hook_shake" (true/false): vibración sutil en la escena 1 para frenar el scroll.`,
     `- "scene_transitions": array opcional con una transición por escena ("cut", "fade", "slide_up", "zoom_punch") acorde al ritmo del guion.`,
   );
@@ -80,4 +85,104 @@ export function buildElevenLabsTagPrompt(
     "",
     `Devuélveme únicamente el texto final listo para copiar y pegar en ElevenLabs (y en la pestaña "ElevenLabs v3 / v4" de Mega Studio).`,
   ].join("\n");
+}
+
+export interface UnifiedScriptBundle {
+  cleanScript: string;
+  elevenlabsScript: string;
+  remotionStyle: string;
+}
+
+export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
+  let text = rawText.trim();
+
+  // Remove outer markdown code fence if the user pasted it with ```text ... ```
+  const outerFenceMatch = text.match(/^```[a-zA-Z0-9_-]*\s*\n([\s\S]*?)\n```\s*$/);
+  if (outerFenceMatch) {
+    text = outerFenceMatch[1].trim();
+  }
+
+  const cleanHeader = /^===\s*(?:1\.\s*)?GUION[_\s]+LIMPIO[^=]*===\s*$/im;
+  const elevenHeader = /^===\s*(?:2\.\s*)?(?:GUION\s+)?ELEVENLABS[^=]*===\s*$/im;
+  const remotionHeader = /^===\s*(?:3\.\s*)?(?:REMOTION[_\s]+JSON|DIRECCI[ÓO]N\s+VISUAL\s+REMOTION[^=]*)===\s*$/im;
+
+  const cleanMatch = cleanHeader.exec(text);
+  const elevenMatch = elevenHeader.exec(text);
+  const remotionMatch = remotionHeader.exec(text);
+
+  if (!cleanMatch && !elevenMatch && !remotionMatch) {
+    throw new Error(
+      "No se encontraron los separadores === GUION_LIMPIO ===, === ELEVENLABS === y === REMOTION_JSON ===.",
+    );
+  }
+
+  const sections: Array<{ key: "clean" | "eleven" | "remotion"; start: number; endOfHeader: number }> = [];
+  if (cleanMatch) {
+    sections.push({
+      key: "clean",
+      start: cleanMatch.index,
+      endOfHeader: cleanMatch.index + cleanMatch[0].length,
+    });
+  }
+  if (elevenMatch) {
+    sections.push({
+      key: "eleven",
+      start: elevenMatch.index,
+      endOfHeader: elevenMatch.index + elevenMatch[0].length,
+    });
+  }
+  if (remotionMatch) {
+    sections.push({
+      key: "remotion",
+      start: remotionMatch.index,
+      endOfHeader: remotionMatch.index + remotionMatch[0].length,
+    });
+  }
+
+  sections.sort((a, b) => a.start - b.start);
+
+  const extracted: Record<"clean" | "eleven" | "remotion", string> = {
+    clean: "",
+    eleven: "",
+    remotion: "",
+  };
+
+  for (let i = 0; i < sections.length; i++) {
+    const curr = sections[i];
+    const nextStart = i + 1 < sections.length ? sections[i + 1].start : text.length;
+    extracted[curr.key] = text.slice(curr.endOfHeader, nextStart).trim();
+  }
+
+  if (!extracted.clean) {
+    throw new Error("Falta el contenido de === GUION_LIMPIO === en el bloque pegado.");
+  }
+
+  let formattedRemotion = "";
+  if (extracted.remotion) {
+    let rawJson = extracted.remotion
+      .replace(/^```(?:json)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .trim();
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawJson);
+    } catch {
+      throw new Error(
+        "La sección === REMOTION_JSON === no contiene un JSON válido. Revisa llaves, comillas y comas.",
+      );
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("La sección === REMOTION_JSON === debe ser un objeto JSON { ... }.");
+    }
+
+    formattedRemotion = JSON.stringify(parsed, null, 2);
+  }
+
+  return {
+    cleanScript: extracted.clean,
+    elevenlabsScript: extracted.eleven,
+    remotionStyle: formattedRemotion,
+  };
 }

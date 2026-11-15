@@ -139,6 +139,7 @@
                 <option value="30">~30s (70 pal.)</option>
                 <option value="45" selected>~45s (105 pal.)</option>
                 <option value="60">~60s (140 pal.)</option>
+                <option value="90">~90s (210 pal.)</option>
               </select>
             </div>
 
@@ -214,13 +215,16 @@
               <button type="button" class="tab" role="tab" data-script-tab="remotion">
                 Estilo Remotion (JSON)
               </button>
+              <button type="button" class="tab" role="tab" data-script-tab="bundle">
+                Pegado Único (3 en 1)
+              </button>
             </div>
 
             <div class="editor-wrap" id="script-panel-clean">
               <textarea
                 id="script-textarea"
                 rows="8"
-                placeholder="Pega aquí tu guion, sube un .txt o genéralo arriba con Gemini..."
+                placeholder="Pega aquí tu guion, sube un .txt o usa 'Pegado Único (3 en 1)'..."
                 aria-label="Contenido del guion limpio"
               ></textarea>
               <div class="editor-meta">
@@ -272,12 +276,32 @@
                 aria-label="Dirección visual de Remotion en JSON"
               ></textarea>
               <div class="editor-meta">
-                <span class="meta-text">
+                <span class="meta-text" id="remotion-style-status">
                   Opcional: si está vacío, Remotion usa el preset del tono seleccionado.
                 </span>
                 <div class="editor-actions">
                   <button type="button" class="btn btn-primary btn-sm" id="btn-save-remotion-style">
                     Guardar estilo
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="editor-wrap hidden" id="script-panel-bundle">
+              <textarea
+                id="bundle-textarea"
+                rows="8"
+                class="mono-textarea"
+                placeholder="Pega aquí el bloque completo devuelto por tu agente IA (con === GUION_LIMPIO ===, === ELEVENLABS === y === REMOTION_JSON ===)..."
+                aria-label="Pegado único de guion limpio, ElevenLabs y estilo Remotion"
+              ></textarea>
+              <div class="editor-meta">
+                <span class="meta-text" id="bundle-status">
+                  Separa y guarda automáticamente las 3 pestañas en un solo clic.
+                </span>
+                <div class="editor-actions">
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-import-bundle">
+                    Aplicar y guardar todo
                   </button>
                 </div>
               </div>

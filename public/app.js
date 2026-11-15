@@ -252,6 +252,12 @@ async function fetchStatus() {
   if (!remotionStyleDirty && remotionMeta) {
     $("#remotion-style-textarea").value = remotionMeta.content || "";
   }
+  const remotionStatusEl = $("#remotion-style-status");
+  if (remotionStatusEl && remotionMeta) {
+    remotionStatusEl.textContent = remotionMeta.exists
+      ? "Guardado en workspace/remotion_style.json"
+      : "Opcional: si está vacío, Remotion usa el preset del tono seleccionado.";
+  }
 
   // Assets
   renderAssetPreview("voiceover", data.files.voiceover, "/media/voiceover", false);
@@ -510,10 +516,12 @@ function setupElevenLabsEditor() {
       $("#script-panel-clean").classList.toggle("hidden", target !== "clean");
       $("#script-panel-elevenlabs").classList.toggle("hidden", target !== "elevenlabs");
       $("#script-panel-remotion").classList.toggle("hidden", target !== "remotion");
+      $("#script-panel-bundle").classList.toggle("hidden", target !== "bundle");
       const labelMap = {
         clean: "input/script.txt",
         elevenlabs: "workspace/script_elevenlabs.txt",
         remotion: "workspace/remotion_style.json",
+        bundle: "Guion + ElevenLabs + Remotion",
       };
       $("#script-file-label").textContent = labelMap[target] || "input/script.txt";
     });
@@ -521,30 +529,84 @@ function setupElevenLabsEditor() {
 
   const remotionTextarea = $("#remotion-style-textarea");
   const saveRemotionBtn = $("#btn-save-remotion-style");
+  const remotionStatusEl = $("#remotion-style-status");
 
   remotionTextarea.addEventListener("input", () => {
     remotionStyleDirty = true;
+    if (remotionStatusEl) {
+      remotionStatusEl.textContent = "Cambios sin guardar...";
+    }
   });
 
   saveRemotionBtn.addEventListener("click", async () => {
-    const res = await fetch("/api/script/remotion-style", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: remotionTextarea.value }),
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      showToast(json.error || "Error al guardar el estilo Remotion", true);
+    saveRemotionBtn.disabled = true;
+    try {
+      const res = await fetch("/api/script/remotion-style", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: remotionTextarea.value }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "Error al guardar el estilo Remotion", true);
+        return;
+      }
+      remotionStyleDirty = false;
+      remotionTextarea.value = json.content || "";
+      const msg = json.content
+        ? "Estilo Remotion guardado en workspace/remotion_style.json"
+        : "Estilo personalizado limpiado (se usará el preset del tono)";
+      if (remotionStatusEl) {
+        remotionStatusEl.textContent = msg;
+      }
+      showToast(msg);
+      await fetchStatus();
+    } finally {
+      saveRemotionBtn.disabled = false;
+    }
+  });
+
+  const bundleTextarea = $("#bundle-textarea");
+  const importBundleBtn = $("#btn-import-bundle");
+  const bundleStatusEl = $("#bundle-status");
+
+  importBundleBtn.addEventListener("click", async () => {
+    const raw = bundleTextarea.value;
+    if (!raw.trim()) {
+      showToast("Pega primero el bloque completo generado por tu agente IA", true);
       return;
     }
-    remotionStyleDirty = false;
-    remotionTextarea.value = json.content || "";
-    showToast(
-      json.content
-        ? "Estilo Remotion guardado en workspace/remotion_style.json"
-        : "Estilo personalizado limpiado (se usará el preset del tono)",
-    );
-    await fetchStatus();
+
+    importBundleBtn.disabled = true;
+    importBundleBtn.textContent = "Guardando...";
+    try {
+      const res = await fetch("/api/script/import-bundle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: raw }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        showToast(json.error || "No se pudo importar el bloque", true);
+        if (bundleStatusEl) {
+          bundleStatusEl.textContent = json.error || "Error al parsear el bloque.";
+        }
+        return;
+      }
+
+      scriptDirty = false;
+      elevenLabsDirty = false;
+      remotionStyleDirty = false;
+      bundleTextarea.value = "";
+      if (bundleStatusEl) {
+        bundleStatusEl.textContent = "Importado: Guion limpio, ElevenLabs y Estilo Remotion guardados.";
+      }
+      showToast("Guion limpio, ElevenLabs y Estilo Remotion guardados");
+      await fetchStatus();
+    } finally {
+      importBundleBtn.disabled = false;
+      importBundleBtn.textContent = "Aplicar y guardar todo";
+    }
   });
 
   retagBtn.addEventListener("click", async () => {

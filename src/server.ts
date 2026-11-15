@@ -21,6 +21,7 @@ import { renderFinalVideo } from "./services/videoRenderer.js";
 import {
   buildElevenLabsTagPrompt,
   buildRetentionScriptPrompt,
+  parseUnifiedScriptBundle,
 } from "./services/scriptGenerator.js";
 import type { GeneratedScript, Storyboard, TranscriptionResult } from "./types/pipeline.js";
 
@@ -311,6 +312,39 @@ app.post("/api/script/remotion-style", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Error al guardar el estilo Remotion.",
+    });
+  }
+});
+
+app.post("/api/script/import-bundle", async (req, res) => {
+  const { content } = req.body ?? {};
+  if (typeof content !== "string" || !content.trim()) {
+    res.status(400).json({ error: "Pega el bloque completo generado por tu agente IA." });
+    return;
+  }
+
+  try {
+    const bundle = parseUnifiedScriptBundle(content);
+    const { meta, paths } = await getActiveProject();
+
+    await fsp.mkdir(path.dirname(paths.script), { recursive: true });
+    await fsp.writeFile(paths.script, bundle.cleanScript, "utf-8");
+
+    if (bundle.elevenlabsScript) {
+      await fsp.mkdir(path.dirname(paths.scriptElevenLabs), { recursive: true });
+      await fsp.writeFile(paths.scriptElevenLabs, bundle.elevenlabsScript, "utf-8");
+    }
+
+    if (bundle.remotionStyle) {
+      await fsp.mkdir(path.dirname(paths.remotionStyle), { recursive: true });
+      await fsp.writeFile(paths.remotionStyle, bundle.remotionStyle, "utf-8");
+    }
+
+    await touchProject(meta.slug);
+    res.json({ ok: true, ...bundle });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : "No se pudo importar el bloque.",
     });
   }
 });
