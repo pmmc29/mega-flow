@@ -139,9 +139,167 @@ async function transcribeWithOpenAI(audioPath: string): Promise<TranscriptionRes
   return { duration, words };
 }
 
+function normalizeToken(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function tokenSimilarity(aRaw: string, bRaw: string): number {
+  const a = normalizeToken(aRaw);
+  const b = normalizeToken(bRaw);
+  if (!a || !b) return -1.0;
+  if (a === b) return 2.2;
+  if (a.length >= 3 && b.length >= 3 && (a.includes(b) || b.includes(a))) {
+    return 1.3;
+  }
+
+  const m = a.length;
+  const n = b.length;
+  const dp: number[] = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = i - 1;
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      if (a[i - 1] === b[j - 1]) {
+        dp[j] = prev;
+      } else {
+        dp[j] = 1 + Math.min(prev, dp[j], dp[j - 1]);
+      }
+      prev = temp;
+    }
+  }
+  const dist = dp[n];
+  const ratio = 1 - dist / Math.max(m, n, 1);
+  return ratio >= 0.55 ? ratio * 1.4 : -1.1;
+}
+
+export function alignWhisperWithScript(
+  whisperWords: WordTimestamp[],
+  scriptText: string,
+  totalDuration: number,
+): WordTimestamp[] {
+  const scriptTokens = scriptText.trim().split(/\s+/).filter(Boolean);
+  if (scriptTokens.length === 0 || whisperWords.length === 0) {
+    return whisperWords;
+  }
+
+  const ratio = scriptTokens.length / whisperWords.length;
+  if (ratio < 0.55 || ratio > 1.85) {
+    return whisperWords;
+  }
+
+  const N = scriptTokens.length;
+  const M = whisperWords.length;
+  const GAP = -0.75;
+
+  const dp: Float64Array[] = Array.from({ length: N + 1 }, () => new Float64Array(M + 1));
+  const move: Uint8Array[] = Array.from({ length: N + 1 }, () => new Uint8Array(M + 1));
+  // move: 1 = diag, 2 = up (skip script), 3 = left (skip whisper)
+
+  for (let i = 1; i <= N; i++) {
+    dp[i][0] = i * GAP;
+    move[i][0] = 2;
+  }
+  for (let j = 1; j <= M; j++) {
+    dp[0][j] = j * GAP;
+    move[0][j] = 3;
+  }
+
+  for (let i = 1; i <= N; i++) {
+    for (let j = 1; j <= M; j++) {
+      const diag = dp[i - 1][j - 1] + tokenSimilarity(scriptTokens[i - 1], whisperWords[j - 1].word);
+      const up = dp[i - 1][j] + GAP;
+      const left = dp[i][j - 1] + GAP;
+
+      if (diag >= up && diag >= left) {
+        dp[i][j] = diag;
+        move[i][j] = 1;
+      } else if (up >= left) {
+        dp[i][j] = up;
+        move[i][j] = 2;
+      } else {
+        dp[i][j] = left;
+        move[i][j] = 3;
+      }
+    }
+  }
+
+  const matchedWhisperIdx = new Array<number | null>(N).fill(null);
+  let i = N;
+  let j = M;
+  while (i > 0 || j > 0) {
+    const dir = move[i][j];
+    if (i > 0 && j > 0 && dir === 1) {
+      matchedWhisperIdx[i - 1] = j - 1;
+      i--;
+      j--;
+    } else if (i > 0 && (j === 0 || dir === 2)) {
+      i--;
+    } else {
+      j--;
+    }
+  }
+
+  const result: WordTimestamp[] = new Array(N);
+  let idx = 0;
+  while (idx < N) {
+    const wIdx = matchedWhisperIdx[idx];
+    if (wIdx !== null) {
+      const w = whisperWords[wIdx];
+      result[idx] = {
+        word: scriptTokens[idx],
+        start: w.start,
+        end: w.end,
+      };
+      idx++;
+      continue;
+    }
+
+    const runStart = idx;
+    while (idx < N && matchedWhisperIdx[idx] === null) {
+      idx++;
+    }
+    const runEnd = idx - 1;
+
+    const prevTime =
+      runStart > 0
+        ? result[runStart - 1].end
+        : whisperWords[0].start;
+    const nextWIdx = idx < N ? matchedWhisperIdx[idx] : null;
+    const nextTime =
+      nextWIdx !== null
+        ? whisperWords[nextWIdx].start
+        : Math.max(prevTime + 0.3, totalDuration || whisperWords[M - 1].end);
+
+    const span = Math.max(0.15 * (runEnd - runStart + 1), nextTime - prevTime);
+    const weights = [];
+    let sumW = 0;
+    for (let k = runStart; k <= runEnd; k++) {
+      const w = Math.max(2, normalizeToken(scriptTokens[k]).length || 2);
+      weights.push(w);
+      sumW += w;
+    }
+    let cursor = prevTime;
+    for (let k = runStart; k <= runEnd; k++) {
+      const dur = (weights[k - runStart] / sumW) * span;
+      const start = Number(cursor.toFixed(3));
+      cursor += dur;
+      const end = Number(Math.max(start + 0.06, cursor).toFixed(3));
+      result[k] = { word: scriptTokens[k], start, end };
+    }
+  }
+
+  return result;
+}
+
 export async function transcribeVoiceover(
   audioPath: string = PATHS.voiceover,
   outputPath: string = PATHS.timestamps,
+  scriptPath?: string,
 ): Promise<TranscriptionResult> {
   if (!fs.existsSync(audioPath)) {
     throw new Error(`No se encontró el archivo de audio en: ${audioPath}`);
@@ -153,8 +311,21 @@ export async function transcribeVoiceover(
       ? await transcribeWithOpenAI(audioPath)
       : await transcribeWithLocalWhisper(audioPath);
 
+  let finalWords = rawResult.words;
+  if (scriptPath && fs.existsSync(scriptPath)) {
+    const scriptText = await fsp.readFile(scriptPath, "utf-8");
+    const aligned = alignWhisperWithScript(rawResult.words, scriptText, rawResult.duration);
+    if (aligned !== rawResult.words) {
+      finalWords = aligned;
+      console.log(
+        `[Transcriber] Ortografía alineada con el guion limpio (${finalWords.length} palabras).`,
+      );
+    }
+  }
+
   const result: TranscriptionResult = {
-    ...rawResult,
+    duration: rawResult.duration,
+    words: finalWords,
     source: "whisper",
   };
 

@@ -73,7 +73,12 @@ export const AnimatedScene: React.FC<AnimatedSceneProps> = ({
   }
 
   return (
-    <AbsoluteFill style={{ backgroundColor: "#000000", overflow: "hidden" }}>
+    <AbsoluteFill
+      style={{
+        backgroundColor: transition === "fade" ? "transparent" : "#000000",
+        overflow: "hidden",
+      }}
+    >
       <Img
         src={src}
         style={{

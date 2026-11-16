@@ -59,6 +59,12 @@ const upload = multer({
 
 type AssetKey = "voiceover" | "characterRef" | "bgMusic" | "watermark";
 
+interface FlowProgress {
+  completed: number;
+  total: number;
+  lastSceneId: number;
+}
+
 interface JobState {
   running: boolean;
   step: string | null;
@@ -66,6 +72,7 @@ interface JobState {
   finishedAt: string | null;
   logs: string[];
   error: string | null;
+  flowProgress: FlowProgress | null;
 }
 
 const jobState: JobState = {
@@ -75,6 +82,7 @@ const jobState: JobState = {
   finishedAt: null,
   logs: [],
   error: null,
+  flowProgress: null,
 };
 
 function appendLog(message: string): void {
@@ -728,6 +736,7 @@ app.post("/api/run/:step", async (req, res) => {
   jobState.finishedAt = null;
   jobState.logs = [];
   jobState.error = null;
+  jobState.flowProgress = null;
 
   const originalLog = console.log;
   const originalError = console.error;
@@ -746,7 +755,7 @@ app.post("/api/run/:step", async (req, res) => {
       appendLog(`[${meta.name}] Iniciando ejecución: ${step}`);
       if (step === "transcribe") {
         if (fs.existsSync(paths.voiceover)) {
-          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps, paths.script);
           await syncStoryboardToDuration(paths.storyboard, ts.duration);
         } else {
           appendLog(
@@ -761,7 +770,7 @@ app.post("/api/run/:step", async (req, res) => {
         }
       } else if (step === "all") {
         if (fs.existsSync(paths.voiceover)) {
-          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps, paths.script);
           await syncStoryboardToDuration(paths.storyboard, ts.duration);
         } else {
           appendLog(
@@ -816,7 +825,7 @@ app.post("/api/run/:step", async (req, res) => {
             appendLog(
               "[Pipeline] Audio ElevenLabs detectado: ajustando timestamps con Whisper para renderizado final...",
             );
-            const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+            const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps, paths.script);
             await syncStoryboardToDuration(paths.storyboard, ts.duration);
           }
         } else {
@@ -842,6 +851,7 @@ app.post("/api/run/:step", async (req, res) => {
           remotionStylePath: paths.remotionStyle,
           projectTone: meta.tone,
           outputPath: paths.finalVideo,
+          previewMode: !fs.existsSync(paths.voiceover),
         });
       }
       await touchProject(meta.slug);
@@ -937,6 +947,7 @@ app.post("/api/scenes/generate-flow", async (req, res) => {
   jobState.finishedAt = null;
   jobState.logs = [];
   jobState.error = null;
+  jobState.flowProgress = { completed: 0, total: 0, lastSceneId: 0 };
 
   const originalLog = console.log;
   const originalError = console.error;
@@ -957,6 +968,9 @@ app.post("/api/scenes/generate-flow", async (req, res) => {
         characterRefPath: PATHS.characterRef,
         scenesDir: paths.scenesDir,
         concurrency,
+        onProgress: (progress) => {
+          jobState.flowProgress = progress;
+        },
       });
       await touchProject(meta.slug);
       appendLog(
@@ -980,6 +994,165 @@ app.post("/api/scenes/generate-flow", async (req, res) => {
   })();
 
   res.json({ ok: true, started: "flow-batch" });
+});
+
+app.put("/api/timestamps", async (req, res) => {
+  const words = req.body?.words;
+  const duration = Number(req.body?.duration);
+  if (!Array.isArray(words) || words.length === 0) {
+    res.status(400).json({ error: "Se requiere una lista válida de palabras." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const existing = await readJsonSafe<TranscriptionResult>(paths.timestamps);
+    const sanitized = words
+      .map((w: { word?: unknown; start?: unknown; end?: unknown }) => {
+        const word = String(w?.word ?? "").trim();
+        const start = Number(w?.start);
+        const end = Number(w?.end);
+        return {
+          word,
+          start: Number.isFinite(start) && start >= 0 ? Number(start.toFixed(3)) : 0,
+          end: Number.isFinite(end) && end > 0 ? Number(end.toFixed(3)) : 0.2,
+        };
+      })
+      .filter((w) => w.word.length > 0);
+
+    const lastEnd = sanitized.length > 0 ? sanitized[sanitized.length - 1].end : 0;
+    const payload: TranscriptionResult = {
+      duration:
+        Number.isFinite(duration) && duration > 0
+          ? Number(duration.toFixed(3))
+          : existing?.duration || lastEnd,
+      words: sanitized,
+      source: existing?.source ?? "whisper",
+    };
+
+    await fsp.mkdir(path.dirname(paths.timestamps), { recursive: true });
+    await fsp.writeFile(paths.timestamps, JSON.stringify(payload, null, 2), "utf-8");
+    await touchProject(meta.slug);
+    res.json({ ok: true, timestamps: payload });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al guardar timestamps.",
+    });
+  }
+});
+
+app.patch("/api/scenes/:sceneId", async (req, res) => {
+  const sceneId = Number(req.params.sceneId);
+  if (!Number.isInteger(sceneId) || sceneId <= 0) {
+    res.status(400).json({ error: "Número de escena inválido." });
+    return;
+  }
+
+  try {
+    const { meta, paths } = await getActiveProject();
+    const sb = await readJsonSafe<Storyboard>(paths.storyboard);
+    if (!sb || !Array.isArray(sb.scenes)) {
+      res.status(404).json({ error: "No existe storyboard.json en este proyecto." });
+      return;
+    }
+
+    const scene = sb.scenes.find((s) => s.id === sceneId);
+    if (!scene) {
+      res.status(404).json({ error: `No se encontró la escena ${sceneId}.` });
+      return;
+    }
+
+    if (typeof req.body?.image_prompt === "string" && req.body.image_prompt.trim()) {
+      scene.image_prompt = req.body.image_prompt.trim();
+    }
+    if (
+      typeof req.body?.camera_motion === "string" &&
+      ["zoom_in", "zoom_out", "pan_left", "pan_right"].includes(req.body.camera_motion)
+    ) {
+      scene.camera_motion = req.body.camera_motion;
+    }
+    if (typeof req.body?.use_character === "boolean") {
+      scene.use_character = req.body.use_character;
+    }
+
+    await fsp.writeFile(paths.storyboard, JSON.stringify(sb, null, 2), "utf-8");
+    await touchProject(meta.slug);
+    res.json({ ok: true, scene });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : "Error al actualizar la escena.",
+    });
+  }
+});
+
+app.post("/api/scenes/:sceneId/generate-flow", async (req, res) => {
+  const sceneId = Number(req.params.sceneId);
+  if (!Number.isInteger(sceneId) || sceneId <= 0) {
+    res.status(400).json({ error: "Número de escena inválido." });
+    return;
+  }
+  if (jobState.running) {
+    res.status(409).json({ error: "Ya hay una ejecución en curso." });
+    return;
+  }
+
+  const { meta, paths } = await getActiveProject();
+  if (!fs.existsSync(paths.storyboard)) {
+    res.status(400).json({ error: "No existe storyboard.json." });
+    return;
+  }
+
+  jobState.running = true;
+  jobState.step = "flow-batch";
+  jobState.startedAt = new Date().toISOString();
+  jobState.finishedAt = null;
+  jobState.logs = [];
+  jobState.error = null;
+  jobState.flowProgress = { completed: 0, total: 1, lastSceneId: sceneId };
+
+  const originalLog = console.log;
+  const originalError = console.error;
+  console.log = (...args: unknown[]) => {
+    appendLog(args.map(String).join(" "));
+    originalLog(...args);
+  };
+  console.error = (...args: unknown[]) => {
+    appendLog(`ERROR: ${args.map(String).join(" ")}`);
+    originalError(...args);
+  };
+
+  void (async () => {
+    try {
+      appendLog(`[${meta.name}] Regenerando escena #${sceneId} en Google Flow...`);
+      const summary = await generateFlowBatchScenes({
+        storyboardPath: paths.storyboard,
+        characterRefPath: PATHS.characterRef,
+        scenesDir: paths.scenesDir,
+        concurrency: 1,
+        sceneIds: [sceneId],
+        onProgress: (progress) => {
+          jobState.flowProgress = progress;
+        },
+      });
+      await touchProject(meta.slug);
+      if (summary.failed.length > 0) {
+        jobState.error = `Falló la escena #${sceneId}: ${summary.failed[0].error}`;
+      } else {
+        appendLog(`Escena #${sceneId} regenerada con éxito.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      jobState.error = msg;
+      appendLog(`Error regenerando escena #${sceneId}: ${msg}`);
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+      jobState.running = false;
+      jobState.finishedAt = new Date().toISOString();
+    }
+  })();
+
+  res.json({ ok: true, started: "flow-single", sceneId });
 });
 
 app.post("/api/scenes/:sceneId/upload", upload.single("file"), async (req, res) => {

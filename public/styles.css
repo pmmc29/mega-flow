@@ -1093,3 +1093,116 @@ code {
     transform: translateY(0);
   }
 }
+
+.flow-live-progress {
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-hairline);
+}
+
+.flow-live-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.84rem;
+  margin-bottom: 8px;
+}
+
+.flow-live-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+.flow-live-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent-primary, #2563eb);
+  transition: width 0.25s ease;
+}
+
+.scene-edit-panel {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.scene-edit-panel textarea {
+  width: 100%;
+  min-height: 62px;
+  font-size: 0.78rem;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface, #fff);
+  color: var(--ink-primary);
+  resize: vertical;
+}
+
+.scene-edit-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+}
+
+.scene-edit-row select {
+  font-size: 0.76rem;
+  padding: 3px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface, #fff);
+}
+
+.ts-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.ts-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 4px 2px;
+}
+
+.ts-word-row {
+  display: grid;
+  grid-template-columns: 1fr 56px 56px;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-hairline);
+}
+
+.ts-word-row input {
+  width: 100%;
+  font-size: 0.78rem;
+  padding: 3px 5px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-primary);
+}
+
+.ts-word-row input:focus {
+  outline: none;
+  border-color: var(--accent-primary, #2563eb);
+  background: var(--bg-surface, #fff);
+}

@@ -531,6 +531,8 @@ export interface FlowBatchOptions {
   characterRefPath: string;
   scenesDir: string;
   concurrency?: number;
+  sceneIds?: number[];
+  onProgress?: (progress: { completed: number; total: number; lastSceneId: number }) => void;
 }
 
 export interface FlowBatchResult {
@@ -555,12 +557,16 @@ export async function generateFlowBatchScenes(
 
   await fsp.mkdir(options.scenesDir, { recursive: true });
 
-  const missingScenes = storyboard.scenes.filter((s) => {
+  const requestedIds = options.sceneIds?.length ? new Set(options.sceneIds) : null;
+  const targetScenes = storyboard.scenes.filter((s) => {
+    if (requestedIds) {
+      return requestedIds.has(s.id);
+    }
     const filename = `scene_${String(s.id).padStart(3, "0")}.png`;
     return !fs.existsSync(path.join(options.scenesDir, filename));
   });
 
-  if (missingScenes.length === 0) {
+  if (targetScenes.length === 0) {
     console.log("[Flow] Todas las escenas ya están generadas.");
     return {
       total: storyboard.scenes.length,
@@ -580,17 +586,19 @@ export async function generateFlowBatchScenes(
     Math.min(8, Number(options.concurrency || process.env.FLOW_CONCURRENCY || 5)),
   );
   console.log(
-    `[Flow] Generando ${missingScenes.length} escena(s) en Google Flow (concurrencia: ${concurrency} en paralelo)...`,
+    `[Flow] Generando ${targetScenes.length} escena(s) en Google Flow (concurrencia: ${concurrency} en paralelo)...`,
   );
 
   const context = await launchFlowContext();
   const limit = pLimit(concurrency);
   let generated = 0;
+  let processed = 0;
   const failed: Array<{ sceneId: number; error: string }> = [];
+  options.onProgress?.({ completed: 0, total: targetScenes.length, lastSceneId: 0 });
 
   try {
     await Promise.all(
-      missingScenes.map((scene) =>
+      targetScenes.map((scene) =>
         limit(async () => {
           const filename = `scene_${String(scene.id).padStart(3, "0")}.png`;
           const destPath = path.join(options.scenesDir, filename);
@@ -608,6 +616,12 @@ export async function generateFlowBatchScenes(
                 destPath,
               );
               generated += 1;
+              processed += 1;
+              options.onProgress?.({
+                completed: processed,
+                total: targetScenes.length,
+                lastSceneId: scene.id,
+              });
               console.log(`[Flow] Escena ${scene.id} guardada -> ${filename}`);
               return;
             } catch (err) {
@@ -620,6 +634,12 @@ export async function generateFlowBatchScenes(
             }
           }
 
+          processed += 1;
+          options.onProgress?.({
+            completed: processed,
+            total: targetScenes.length,
+            lastSceneId: scene.id,
+          });
           failed.push({
             sceneId: scene.id,
             error: lastErr instanceof Error ? lastErr.message : String(lastErr),
@@ -638,7 +658,7 @@ export async function generateFlowBatchScenes(
   return {
     total: storyboard.scenes.length,
     generated,
-    skipped: storyboard.scenes.length - missingScenes.length,
+    skipped: storyboard.scenes.length - targetScenes.length,
     failed,
   };
 }

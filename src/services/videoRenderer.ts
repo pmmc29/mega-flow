@@ -23,6 +23,7 @@ export interface RenderVideoOptions {
   remotionStylePath?: string;
   projectTone?: string;
   outputPath?: string;
+  previewMode?: boolean;
 }
 
 export async function renderFinalVideo(
@@ -133,9 +134,10 @@ export async function renderFinalVideo(
       inputProps,
     });
 
+    const isPreview = Boolean(options.previewMode);
     await fsp.mkdir(path.dirname(outputPath), { recursive: true });
     console.log(
-      `[VideoRenderer] Renderizando ${composition.durationInFrames} frames (${composition.width}x${composition.height} @ ${composition.fps}fps)...`,
+      `[VideoRenderer] Renderizando ${composition.durationInFrames} frames (${isPreview ? "540x960 Vista Previa" : `${composition.width}x${composition.height} Final`} @ ${composition.fps}fps)...`,
     );
 
     let lastLoggedPct = -10;
@@ -145,6 +147,8 @@ export async function renderFinalVideo(
       codec: "h264",
       outputLocation: outputPath,
       inputProps,
+      scale: isPreview ? 0.5 : 1,
+      crf: isPreview ? 28 : 18,
       onProgress: ({ progress }) => {
         const pct = Math.floor(progress * 100);
         if (pct >= lastLoggedPct + 10) {

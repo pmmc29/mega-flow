@@ -131,7 +131,13 @@ function renderOutputs(outputs, config = {}) {
               <p class="scene-prompt" title="${escapedPrompt}">${meta.image_prompt}</p>
               <div class="scene-actions">
                 <button type="button" class="btn btn-primary btn-xs btn-copy-flow-prompt" data-flow-prompt="${escapedPrompt}">
-                  Copiar prompt Flow
+                  Copiar prompt
+                </button>
+                <button type="button" class="btn btn-secondary btn-xs btn-regen-flow-scene" data-scene-id="${meta.id}">
+                  Regenerar Flow
+                </button>
+                <button type="button" class="btn btn-ghost btn-xs btn-toggle-scene-edit" data-scene-id="${meta.id}">
+                  Editar
                 </button>
                 ${
                   hasImage
@@ -144,6 +150,28 @@ function renderOutputs(outputs, config = {}) {
                       </button>`
                     : ""
                 }
+              </div>
+              <div class="scene-edit-panel hidden" id="scene-edit-${meta.id}">
+                <textarea class="scene-edit-prompt" data-scene-id="${meta.id}">${meta.image_prompt}</textarea>
+                <div class="scene-edit-row">
+                  <select class="scene-edit-motion" data-scene-id="${meta.id}">
+                    ${["zoom_in", "zoom_out", "pan_left", "pan_right"]
+                      .map(
+                        (m) =>
+                          `<option value="${m}" ${meta.camera_motion === m ? "selected" : ""}>${m}</option>`,
+                      )
+                      .join("")}
+                  </select>
+                  <label style="display:flex;align-items:center;gap:4px;">
+                    <input type="checkbox" class="scene-edit-char" data-scene-id="${meta.id}" ${
+                      meta.use_character ? "checked" : ""
+                    } />
+                    Personaje
+                  </label>
+                  <button type="button" class="btn btn-primary btn-xs btn-save-scene-edit" data-scene-id="${meta.id}">
+                    Guardar
+                  </button>
+                </div>
               </div>
             </div>
           </article>
@@ -215,20 +243,40 @@ function renderOutputs(outputs, config = {}) {
   // Timestamps tab
   const tsContent = $("#timestamps-content");
   const emptyTs = $("#empty-timestamps");
+  const isEditingTs = Boolean(
+    tsContent && document.activeElement && tsContent.contains(document.activeElement),
+  );
   if (!timestamps) {
     emptyTs.classList.remove("hidden");
     tsContent.classList.add("hidden");
-  } else {
+  } else if (!isEditingTs) {
     emptyTs.classList.add("hidden");
     tsContent.classList.remove("hidden");
+    const tsSourceLabel =
+      timestamps.source === "estimated"
+        ? "Vista previa estándar (del guion)"
+        : "Whisper (sincronizado con audio)";
     tsContent.innerHTML = `
       <div class="timestamps-box">
-        <div style="font-size:0.88rem;font-weight:600;">
-          Duración total: ${timestamps.duration}s · ${timestamps.words.length} palabras detectadas
+        <div class="ts-editor-toolbar">
+          <div style="font-size:0.88rem;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span>Duración total: ${timestamps.duration}s · ${timestamps.words.length} palabras</span>
+            <span class="badge">${tsSourceLabel}</span>
+          </div>
+          <button type="button" class="btn btn-primary btn-xs" id="btn-save-timestamps">
+            Guardar Timestamps
+          </button>
         </div>
-        <div class="word-cloud">
+        <div class="ts-editor-grid" id="ts-editor-grid">
           ${timestamps.words
-            .map((w) => `<span class="word-chip">${w.word}<small>${w.start}s</small></span>`)
+            .map(
+              (w, idx) => `
+              <div class="ts-word-row" data-word-idx="${idx}">
+                <input type="text" class="ts-word-input" value="${String(w.word).replace(/"/g, "&quot;")}" aria-label="Palabra ${idx + 1}" />
+                <input type="number" step="0.01" min="0" class="ts-start-input" value="${w.start}" title="Inicio (s)" />
+                <input type="number" step="0.01" min="0" class="ts-end-input" value="${w.end}" title="Fin (s)" />
+              </div>`,
+            )
             .join("")}
         </div>
       </div>
@@ -515,6 +563,21 @@ async function fetchStatus() {
   if (job.logs && job.logs.length > 0) {
     consoleLog.textContent = job.logs.join("\n");
     consoleLog.scrollTop = consoleLog.scrollHeight;
+  }
+
+  const flowLiveBox = $("#flow-live-progress");
+  if (flowLiveBox) {
+    const showFlowLive = Boolean(job.running && job.step === "flow-batch");
+    flowLiveBox.classList.toggle("hidden", !showFlowLive);
+    if (showFlowLive) {
+      const fp = job.flowProgress || { completed: 0, total: 0, lastSceneId: 0 };
+      const pct = fp.total > 0 ? Math.min(100, Math.round((fp.completed / fp.total) * 100)) : 5;
+      $("#flow-live-label").textContent = fp.lastSceneId
+        ? `Generando en Google Flow (última completada: escena #${fp.lastSceneId})...`
+        : "Iniciando generación en Google Flow...";
+      $("#flow-live-count").textContent = fp.total > 0 ? `${fp.completed} / ${fp.total}` : "...";
+      $("#flow-live-fill").style.width = `${pct}%`;
+    }
   }
 
   if (job.running && !pollTimer) {
@@ -1100,6 +1163,62 @@ function setupSceneUploaders() {
       return;
     }
 
+    const toggleEditBtn = event.target.closest(".btn-toggle-scene-edit");
+    if (toggleEditBtn) {
+      const sceneId = Number(toggleEditBtn.getAttribute("data-scene-id"));
+      const panel = $(`#scene-edit-${sceneId}`);
+      if (panel) panel.classList.toggle("hidden");
+      return;
+    }
+
+    const saveEditBtn = event.target.closest(".btn-save-scene-edit");
+    if (saveEditBtn) {
+      const sceneId = Number(saveEditBtn.getAttribute("data-scene-id"));
+      const card = saveEditBtn.closest(".scene-card");
+      if (!sceneId || !card) return;
+      const image_prompt = card.querySelector(".scene-edit-prompt")?.value?.trim();
+      const camera_motion = card.querySelector(".scene-edit-motion")?.value;
+      const use_character = Boolean(card.querySelector(".scene-edit-char")?.checked);
+      saveEditBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/scenes/${sceneId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ image_prompt, camera_motion, use_character }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo guardar la escena", true);
+          return;
+        }
+        showToast(`Escena ${sceneId} actualizada`);
+        await fetchStatus();
+      } finally {
+        saveEditBtn.disabled = false;
+      }
+      return;
+    }
+
+    const regenBtn = event.target.closest(".btn-regen-flow-scene");
+    if (regenBtn) {
+      const sceneId = Number(regenBtn.getAttribute("data-scene-id"));
+      if (!sceneId) return;
+      regenBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/scenes/${sceneId}/generate-flow`, { method: "POST" });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo regenerar la escena en Flow", true);
+          return;
+        }
+        showToast(`Regenerando escena ${sceneId} en Google Flow...`);
+        await fetchStatus();
+      } finally {
+        regenBtn.disabled = false;
+      }
+      return;
+    }
+
     const deleteBtn = event.target.closest(".btn-delete-scene");
     if (deleteBtn) {
       const sceneId = Number(deleteBtn.getAttribute("data-scene-id"));
@@ -1113,6 +1232,44 @@ function setupSceneUploaders() {
       await fetchStatus();
     }
   });
+
+  const tsContent = $("#timestamps-content");
+  if (tsContent) {
+    tsContent.addEventListener("click", async (event) => {
+      const saveBtn = event.target.closest("#btn-save-timestamps");
+      if (!saveBtn) return;
+      const rows = Array.from(tsContent.querySelectorAll(".ts-word-row"));
+      const words = rows
+        .map((row) => ({
+          word: row.querySelector(".ts-word-input")?.value?.trim() || "",
+          start: Number(row.querySelector(".ts-start-input")?.value),
+          end: Number(row.querySelector(".ts-end-input")?.value),
+        }))
+        .filter((w) => w.word.length > 0);
+      if (words.length === 0) {
+        showToast("No hay palabras válidas para guardar", true);
+        return;
+      }
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch("/api/timestamps", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ words }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "Error al guardar timestamps", true);
+          return;
+        }
+        showToast("Timestamps guardados");
+        document.activeElement?.blur?.();
+        await fetchStatus();
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
 
   scenesGrid.addEventListener("change", async (event) => {
     const input = event.target.closest(".scene-file-input");

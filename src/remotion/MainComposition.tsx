@@ -60,19 +60,36 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
     ? interpolate(frame, [0, 7], [0.85, 1], { extrapolateRight: "clamp" })
     : 1;
 
+  const words = timestamps?.words ?? [];
+  const isSpeakingAtFrame = (f: number): boolean => {
+    if (!hasVoiceover || words.length === 0) return false;
+    const t = f / fps;
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (t >= w.start - 0.12 && t <= w.end + 0.16) return true;
+      if (w.start - 0.12 > t) break;
+    }
+    return false;
+  };
+
+  const CROSSFADE_FRAMES = 6;
+
   return (
     <AbsoluteFill style={{ backgroundColor: "#000000" }}>
       {storyboard.scenes.map((scene, index) => {
         const startFrame = Math.round(scene.start * fps);
         const endFrame = Math.round(scene.end * fps);
-        const sceneFrames = Math.max(1, endFrame - startFrame);
+        const baseFrames = Math.max(1, endFrame - startFrame);
         const transition =
           config.scene_transitions?.[index] ?? config.default_transition;
+        const overlap = index > 0 && transition === "fade" ? Math.min(CROSSFADE_FRAMES, startFrame) : 0;
+        const fromFrame = startFrame - overlap;
+        const sceneFrames = baseFrames + overlap;
 
         return (
           <Sequence
             key={`${scene.id}-${index}`}
-            from={startFrame}
+            from={fromFrame}
             durationInFrames={sceneFrames}
           >
             <AnimatedScene
@@ -98,12 +115,19 @@ export const MainComposition: React.FC<MainCompositionProps> = ({
       {hasBgMusic && (
         <Audio
           src={staticFile("bg_music.mp3")}
-          volume={(f) =>
-            interpolate(f, [fadeStartFrame, durationInFrames], [baseMusicVolume, 0], {
-              extrapolateLeft: "clamp",
-              extrapolateRight: "clamp",
-            })
-          }
+          volume={(f) => {
+            const fadeOut = interpolate(
+              f,
+              [fadeStartFrame, durationInFrames],
+              [1, 0],
+              {
+                extrapolateLeft: "clamp",
+                extrapolateRight: "clamp",
+              },
+            );
+            const duck = isSpeakingAtFrame(f) ? 0.45 : 1.0;
+            return baseMusicVolume * duck * fadeOut;
+          }}
           loop
         />
       )}

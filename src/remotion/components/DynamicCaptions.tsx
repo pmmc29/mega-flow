@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, spring, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CaptionStyle, WordTimestamp } from "../../types/pipeline.js";
 
 export interface DynamicCaptionsProps {
@@ -15,17 +15,43 @@ interface CaptionGroup {
   end: number;
 }
 
-function groupWords(words: WordTimestamp[], chunkSize: number = 3): CaptionGroup[] {
+function groupWordsSmart(words: WordTimestamp[]): CaptionGroup[] {
   const groups: CaptionGroup[] = [];
-  for (let i = 0; i < words.length; i += chunkSize) {
-    const slice = words.slice(i, i + chunkSize);
-    if (slice.length === 0) continue;
+  let current: WordTimestamp[] = [];
+  let charCount = 0;
+
+  const flush = () => {
+    if (current.length === 0) return;
     groups.push({
-      words: slice,
-      start: slice[0].start,
-      end: slice[slice.length - 1].end,
+      words: current,
+      start: current[0].start,
+      end: current[current.length - 1].end,
     });
+    current = [];
+    charCount = 0;
+  };
+
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const next = words[i + 1];
+    current.push(w);
+    charCount += w.word.length + 1;
+
+    const endsSentence = /[.!?…:;]+$/.test(w.word);
+    const endsClause = /[,]+$/.test(w.word);
+    const gapToNext = next ? next.start - w.end : 0;
+
+    if (
+      current.length >= 3 ||
+      (endsSentence && current.length >= 1) ||
+      (endsClause && current.length >= 2) ||
+      (charCount >= 20 && current.length >= 2) ||
+      gapToNext > 0.35
+    ) {
+      flush();
+    }
   }
+  flush();
   return groups;
 }
 
@@ -39,7 +65,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
   const { fps } = useVideoConfig();
   const currentTime = frame / fps;
 
-  const groups = React.useMemo(() => groupWords(words, 3), [words]);
+  const groups = React.useMemo(() => groupWordsSmart(words), [words]);
   const activeGroup = groups.find(
     (g) => currentTime >= g.start - 0.05 && currentTime <= g.end + 0.12,
   );
@@ -47,6 +73,14 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
   if (!activeGroup) {
     return null;
   }
+
+  const groupStartFrame = Math.max(0, Math.round((activeGroup.start - 0.04) * fps));
+  const pop = spring({
+    frame: Math.max(0, frame - groupStartFrame),
+    fps,
+    config: { damping: 14, stiffness: 220, mass: 0.55 },
+  });
+  const groupScale = 0.9 + 0.1 * pop;
 
   const isPillDark = captionStyle === "pill_dark";
   const isGlow = captionStyle === "glow";
@@ -59,7 +93,7 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
           top: captionsY,
           left: 64,
           right: 64,
-          transform: "translateY(-50%)",
+          transform: `translateY(-50%) scale(${groupScale})`,
           display: "flex",
           flexWrap: "wrap",
           justifyContent: "center",
