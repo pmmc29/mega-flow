@@ -1,10 +1,17 @@
-import { spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
+import fs from "node:fs";
 import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import ffmpegStatic from "ffmpeg-static";
 
 const DEFAULT_ACESTEP_URL = "http://127.0.0.1:8001";
+
+let aceStepProc: ChildProcess | null = null;
+let aceStepStarting = false;
+let aceStepCwd: string | null = null;
+let aceStepCmd: string | null = null;
+let aceStepLastError: string | null = null;
 
 export function getAceStepUrl(): string {
   return (process.env.ACESTEP_API_URL || DEFAULT_ACESTEP_URL).replace(/\/+$/, "");
@@ -20,26 +27,215 @@ export interface AceStepHealth {
   available: boolean;
   url: string;
   error?: string;
+  starting?: boolean;
+  managed?: boolean;
+  cwd?: string | null;
+  lastError?: string | null;
+}
+
+export function getAceStepRuntimeState() {
+  return {
+    managed: Boolean(aceStepProc),
+    starting: aceStepStarting,
+    cwd: aceStepCwd,
+    cmd: aceStepCmd,
+    lastError: aceStepLastError,
+  };
 }
 
 export async function checkAceStepHealth(): Promise<AceStepHealth> {
   const url = getAceStepUrl();
+  const runtime = getAceStepRuntimeState();
   try {
     const res = await fetch(`${url}/health`, {
       headers: getAuthHeaders(),
       signal: AbortSignal.timeout(1800),
     });
     if (!res.ok) {
-      return { available: false, url, error: `HTTP ${res.status}` };
+      return {
+        available: false,
+        url,
+        error: `HTTP ${res.status}`,
+        ...runtime,
+      };
     }
-    return { available: true, url };
+    if (aceStepStarting) {
+      aceStepStarting = false;
+    }
+    return {
+      available: true,
+      url,
+      ...getAceStepRuntimeState(),
+    };
   } catch (err) {
     return {
       available: false,
       url,
       error: err instanceof Error ? err.message : "Sin conexión",
+      ...runtime,
     };
   }
+}
+
+function resolveAceStepLaunchConfig(projectRoot: string): { cmd: string; cwd: string } {
+  const cmd = process.env.ACESTEP_CMD?.trim() || "uv run acestep-api";
+  const envDir = process.env.ACESTEP_DIR?.trim();
+  if (envDir && fs.existsSync(envDir)) {
+    return { cmd, cwd: envDir };
+  }
+
+  const folderNames = ["ACE-Step-1.5", "ACE-Step", "ace-step-1.5", "ace-step", "acestep"];
+  const parentBases = [
+    path.dirname(projectRoot),
+    os.homedir(),
+    path.join(os.homedir(), "Projects"),
+    path.join(os.homedir(), "Documents"),
+    path.join(os.homedir(), "Desktop"),
+  ];
+
+  for (const base of parentBases) {
+    for (const name of folderNames) {
+      const candidate = path.join(base, name);
+      if (fs.existsSync(candidate) && fs.existsSync(path.join(candidate, "pyproject.toml"))) {
+        return { cmd, cwd: candidate };
+      }
+    }
+  }
+
+  for (const base of parentBases) {
+    for (const name of folderNames) {
+      const candidate = path.join(base, name);
+      if (fs.existsSync(candidate)) {
+        return { cmd, cwd: candidate };
+      }
+    }
+  }
+
+  return { cmd, cwd: projectRoot };
+}
+
+function emitBufferedLines(
+  bufferState: { text: string },
+  chunk: Buffer,
+  onLine: (line: string) => void,
+): void {
+  bufferState.text += chunk.toString("utf-8").replace(/\r/g, "\n");
+  const parts = bufferState.text.split("\n");
+  bufferState.text = parts.pop() ?? "";
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (trimmed) {
+      onLine(trimmed);
+    }
+  }
+}
+
+export async function startAceStepService(
+  projectRoot: string,
+  onLog: (line: string) => void,
+): Promise<{ started: boolean; alreadyRunning: boolean; cmd: string; cwd: string }> {
+  const current = await checkAceStepHealth();
+  if (current.available) {
+    return {
+      started: false,
+      alreadyRunning: true,
+      cmd: aceStepCmd || process.env.ACESTEP_CMD?.trim() || "uv run acestep-api",
+      cwd: aceStepCwd || projectRoot,
+    };
+  }
+
+  if (aceStepProc && !aceStepProc.killed) {
+    return {
+      started: false,
+      alreadyRunning: true,
+      cmd: aceStepCmd || "uv run acestep-api",
+      cwd: aceStepCwd || projectRoot,
+    };
+  }
+
+  const { cmd, cwd } = resolveAceStepLaunchConfig(projectRoot);
+  aceStepCmd = cmd;
+  aceStepCwd = cwd;
+  aceStepStarting = true;
+  aceStepLastError = null;
+
+  onLog(`[ACE-Step] Iniciando servicio: "${cmd}" en ${cwd}`);
+
+  const proc = spawn(cmd, {
+    cwd,
+    shell: true,
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: "1",
+    },
+  });
+
+  aceStepProc = proc;
+  const outBuf = { text: "" };
+  const errBuf = { text: "" };
+
+  proc.stdout?.on("data", (chunk: Buffer) => {
+    emitBufferedLines(outBuf, chunk, (line) => {
+      onLog(`[ACE-Step] ${line}`);
+    });
+  });
+
+  proc.stderr?.on("data", (chunk: Buffer) => {
+    emitBufferedLines(errBuf, chunk, (line) => {
+      onLog(`[ACE-Step] ${line}`);
+    });
+  });
+
+  proc.on("error", (err) => {
+    aceStepLastError = err.message;
+    aceStepStarting = false;
+    if (aceStepProc === proc) {
+      aceStepProc = null;
+    }
+    onLog(`[ACE-Step] Error al iniciar: ${err.message}`);
+  });
+
+  proc.on("close", (code) => {
+    if (outBuf.text.trim()) onLog(`[ACE-Step] ${outBuf.text.trim()}`);
+    if (errBuf.text.trim()) onLog(`[ACE-Step] ${errBuf.text.trim()}`);
+    if (code && code !== 0) {
+      aceStepLastError = `Proceso finalizado con código ${code}`;
+    }
+    aceStepStarting = false;
+    if (aceStepProc === proc) {
+      aceStepProc = null;
+    }
+    onLog(`[ACE-Step] Servicio detenido (código ${code ?? 0}).`);
+  });
+
+  return { started: true, alreadyRunning: false, cmd, cwd };
+}
+
+export function stopAceStepService(onLog?: (line: string) => void): { stopped: boolean } {
+  const proc = aceStepProc;
+  aceStepStarting = false;
+  if (!proc) {
+    return { stopped: false };
+  }
+
+  aceStepProc = null;
+  try {
+    if (proc.pid) {
+      process.kill(-proc.pid, "SIGTERM");
+    } else {
+      proc.kill("SIGTERM");
+    }
+  } catch {
+    try {
+      proc.kill("SIGTERM");
+    } catch {
+      // ignore if already exited
+    }
+  }
+  onLog?.("[ACE-Step] Deteniendo servicio...");
+  return { stopped: true };
 }
 
 export interface GenerateAceStepMusicOptions {

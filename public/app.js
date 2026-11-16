@@ -313,7 +313,39 @@ async function fetchStatus() {
   } else {
     updateChip("#chip-openai", true, "Whisper Local (Gratis)");
   }
-  updateChip("#chip-gemini", data.env.gemini, "Gemini API");
+
+  const aceChip = $("#chip-acestep");
+  const aceToggleBtn = $("#btn-acestep-toggle");
+  const aceState = data.env?.aceStep || {};
+  if (aceChip) {
+    aceChip.classList.remove("is-ok", "is-missing", "is-starting");
+    if (aceState.available) {
+      aceChip.classList.add("is-ok");
+      aceChip.querySelector("span:last-child").textContent = "ACE-Step: Conectado";
+    } else if (aceState.starting || aceState.managed) {
+      aceChip.classList.add("is-starting");
+      aceChip.querySelector("span:last-child").textContent = "ACE-Step: Iniciando...";
+    } else {
+      aceChip.classList.add("is-missing");
+      aceChip.querySelector("span:last-child").textContent = "ACE-Step: Apagado";
+    }
+  }
+  if (aceToggleBtn) {
+    const canStop = Boolean(aceState.managed);
+    if (canStop) {
+      aceToggleBtn.textContent = "Detener ACE-Step";
+      aceToggleBtn.disabled = false;
+      aceToggleBtn.title = "Detener el servicio local de ACE-Step";
+    } else if (aceState.available) {
+      aceToggleBtn.textContent = "Externo activo";
+      aceToggleBtn.disabled = true;
+      aceToggleBtn.title = "ACE-Step ya está corriendo en otra terminal";
+    } else {
+      aceToggleBtn.textContent = "Iniciar ACE-Step";
+      aceToggleBtn.disabled = false;
+      aceToggleBtn.title = "Iniciar ACE-Step 1.5 en segundo plano y ver logs en Paso 2";
+    }
+  }
 
   // Projects
   if (data.activeProject && Array.isArray(data.projects)) {
@@ -440,14 +472,17 @@ async function fetchStatus() {
   const hasAudio = data.files.voiceover.exists;
 
   const aceStepAvailable = Boolean(data.env?.aceStep?.available);
+  const aceStepStarting = Boolean(data.env?.aceStep?.starting);
   const aceStepStatusEl = $("#acestep-status");
   if (aceStepStatusEl) {
-    if (!aceStepAvailable) {
-      aceStepStatusEl.textContent = "ACE-Step 1.5: Apagado · Google Flow disponible";
-    } else if (!hasAudio) {
-      aceStepStatusEl.textContent = "ACE-Step 1.5: Conectado · Sube locución para generar";
+    if (aceStepAvailable) {
+      aceStepStatusEl.textContent = hasAudio
+        ? "ACE-Step 1.5: Conectado"
+        : "ACE-Step 1.5: Conectado · Sube locución para generar";
+    } else if (aceStepStarting) {
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Iniciando (ver logs en Paso 2)...";
     } else {
-      aceStepStatusEl.textContent = "ACE-Step 1.5: Conectado";
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Apagado · Google Flow disponible";
     }
   }
 
@@ -581,9 +616,10 @@ async function fetchStatus() {
     }
   }
 
-  if (job.running && !pollTimer) {
+  const shouldPoll = Boolean(job.running || aceStepStarting);
+  if (shouldPoll && !pollTimer) {
     pollTimer = setInterval(fetchStatus, 1200);
-  } else if (!job.running && pollTimer) {
+  } else if (!shouldPoll && pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;
   }
@@ -1058,6 +1094,32 @@ function setupMusicPrompt() {
       } finally {
         aceBtn.disabled = false;
         aceBtn.textContent = "Generar con ACE-Step";
+      }
+    });
+  }
+
+  const aceToggleBtn = $("#btn-acestep-toggle");
+  if (aceToggleBtn) {
+    aceToggleBtn.addEventListener("click", async () => {
+      const isManaged = Boolean(latestStatus?.env?.aceStep?.managed);
+      aceToggleBtn.disabled = true;
+      try {
+        const endpoint = isManaged ? "/api/acestep/stop" : "/api/acestep/start";
+        const res = await fetch(endpoint, { method: "POST" });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo cambiar el estado de ACE-Step", true);
+        } else if (isManaged) {
+          showToast("ACE-Step detenido");
+        } else if (json.alreadyRunning) {
+          showToast("ACE-Step ya estaba activo");
+        } else {
+          showToast("Iniciando ACE-Step 1.5 (revisa el registro en Paso 2)");
+        }
+      } catch (err) {
+        showToast(err instanceof Error ? err.message : "Error de red con ACE-Step", true);
+      } finally {
+        await fetchStatus();
       }
     });
   }

@@ -33,6 +33,8 @@ import {
   checkAceStepHealth,
   generateAceStepMusic,
   getAudioDurationSeconds,
+  startAceStepService,
+  stopAceStepService,
 } from "./services/musicGenerator.js";
 import {
   generateFlowBatchScenes,
@@ -568,6 +570,26 @@ app.post("/api/music/prompt", async (req, res) => {
   }
 });
 
+app.post("/api/acestep/start", async (_req, res) => {
+  try {
+    const result = await startAceStepService(PATHS.root, (line) => {
+      appendLog(line);
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error al iniciar ACE-Step 1.5.";
+    appendLog(`[ACE-Step] ERROR: ${msg}`);
+    res.status(500).json({ error: msg });
+  }
+});
+
+app.post("/api/acestep/stop", (_req, res) => {
+  const result = stopAceStepService((line) => {
+    appendLog(line);
+  });
+  res.json({ ok: true, ...result });
+});
+
 app.post("/api/music/generate-acestep", async (req, res) => {
   const { topic, durationSeconds, tone, prompt: customPrompt } = req.body ?? {};
   try {
@@ -619,11 +641,17 @@ app.post("/api/music/generate-acestep", async (req, res) => {
             remotionStyle,
           });
 
+    appendLog(
+      `[ACE-Step] Generando música (${resolvedDuration.durationSeconds}s) para "${meta.name}"...`,
+    );
     const result = await generateAceStepMusic({
       prompt: resolvedPrompt,
       durationSeconds: resolvedDuration.durationSeconds,
       outputPath: paths.bgMusic,
     });
+    appendLog(
+      `[ACE-Step] Música lista (${resolvedDuration.durationSeconds}s, ${result.size} bytes).`,
+    );
 
     await touchProject(meta.slug);
     res.json({
@@ -635,8 +663,10 @@ app.post("/api/music/generate-acestep", async (req, res) => {
       taskId: result.taskId,
     });
   } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error al generar música con ACE-Step 1.5.";
+    appendLog(`[ACE-Step] ERROR: ${msg}`);
     res.status(500).json({
-      error: err instanceof Error ? err.message : "Error al generar música con ACE-Step 1.5.",
+      error: msg,
     });
   }
 });
@@ -1332,3 +1362,10 @@ app.get("/media/watermark", async (_req, res) => {
 app.listen(PORT, () => {
   console.log(`Mega Studio disponible en http://localhost:${PORT}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    stopAceStepService();
+    process.exit(0);
+  });
+}

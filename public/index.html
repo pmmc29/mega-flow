@@ -29,15 +29,20 @@
           </div>
         </div>
 
-        <div class="env-status" aria-label="Estado de claves API">
+        <div class="env-status" aria-label="Estado de servicios">
           <span class="status-chip" id="chip-openai">
             <span class="dot"></span>
             <span>OpenAI Whisper</span>
           </span>
-          <span class="status-chip" id="chip-gemini">
-            <span class="dot"></span>
-            <span>Gemini API</span>
-          </span>
+          <div class="acestep-header-control">
+            <span class="status-chip" id="chip-acestep">
+              <span class="dot"></span>
+              <span>ACE-Step: Apagado</span>
+            </span>
+            <button type="button" class="btn btn-secondary btn-xs" id="btn-acestep-toggle">
+              Iniciar ACE-Step
+            </button>
+          </div>
         </div>
       </div>
     </header>

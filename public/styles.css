@@ -159,6 +159,28 @@ code {
   background: var(--warning);
 }
 
+.status-chip.is-starting {
+  background: #fef3c7;
+  color: #b45309;
+  border-color: transparent;
+}
+
+.status-chip.is-starting .dot {
+  background: #f59e0b;
+  animation: pulseDot 1.1s ease-in-out infinite;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.85); }
+}
+
+.acestep-header-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Main Layout */
 .main-content {
   padding: 28px 0 64px;
