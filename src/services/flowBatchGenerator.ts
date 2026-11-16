@@ -364,16 +364,28 @@ async function clickGenerateButton(page: Page): Promise<boolean> {
   return false;
 }
 
-async function collectLargeImageSrcs(page: Page): Promise<string[]> {
+interface CandidateImage {
+  src: string;
+  isVertical: boolean;
+}
+
+async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
   return page.evaluate(() => {
     const imgs = Array.from(document.querySelectorAll("img"));
     return imgs
       .filter((img) => {
+        if (img.closest('[role="textbox"], [class*="ingredient" i], [class*="prompt" i]')) {
+          return false;
+        }
         const w = img.naturalWidth || img.width || 0;
         const h = img.naturalHeight || img.height || 0;
         return w >= 350 && h >= 350 && Boolean(img.src);
       })
-      .map((img) => img.src);
+      .map((img) => {
+        const w = img.naturalWidth || img.width || 0;
+        const h = img.naturalHeight || img.height || 0;
+        return { src: img.src, isVertical: h > w };
+      });
   });
 }
 
@@ -386,10 +398,15 @@ async function saveSceneFromFlowPage(
   let newSrc = "";
 
   while (Date.now() < deadline) {
-    const currentSrcs = await collectLargeImageSrcs(page);
-    const found = currentSrcs.find((src) => !beforeSrcs.has(src));
-    if (found) {
-      newSrc = found;
+    const candidates = await collectLargeImageSrcs(page);
+    const verticalNew = candidates.find((c) => !beforeSrcs.has(c.src) && c.isVertical);
+    const anyNew = candidates.find((c) => !beforeSrcs.has(c.src));
+    if (verticalNew) {
+      newSrc = verticalNew.src;
+      break;
+    }
+    if (anyNew && Date.now() > deadline - 95_000) {
+      newSrc = anyNew.src;
       break;
     }
     await page.waitForTimeout(1500);
@@ -453,14 +470,16 @@ async function generateSingleFlowScene(
 
     if (scene.use_character) {
       const attached = await attachCharacterReference(page, characterRefPath);
-      if (!attached) {
+      if (attached) {
+        // Esperar a que character_ref.png termine de subir y renderizarse en el DOM antes de tomar beforeSrcs
+        await page.waitForTimeout(2500);
+      } else {
         console.log(
           `[Flow] Escena ${scene.id}: no se pudo adjuntar character_ref.png automáticamente; enviando prompt con descripción.`,
         );
       }
     }
 
-    const beforeSrcs = new Set(await collectLargeImageSrcs(page));
     const fullPrompt = buildFullFlowPrompt(scene);
 
     await input.click({ force: true });
@@ -468,13 +487,18 @@ async function generateSingleFlowScene(
     await page.waitForTimeout(300);
 
     await selectVerticalAspectRatio(page);
-    await page.waitForTimeout(300);
+    await page.waitForTimeout(400);
+
+    // Capturar las imágenes ya presentes (incluida cualquier miniatura de character_ref) justo antes de generar
+    const beforeSrcs = new Set((await collectLargeImageSrcs(page)).map((c) => c.src));
 
     const clicked = await clickGenerateButton(page);
     if (!clicked) {
       await input.press("Enter");
     }
 
+    // Dar tiempo mínimo a que inicie la generación antes de buscar la imagen nueva
+    await page.waitForTimeout(4500);
     await saveSceneFromFlowPage(page, beforeSrcs, destPath);
   } finally {
     await page.close().catch(() => {});
