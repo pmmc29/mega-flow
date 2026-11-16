@@ -46,6 +46,15 @@ import {
   buildRetentionScriptPrompt,
   parseUnifiedScriptBundle,
 } from "./services/scriptGenerator.js";
+import {
+  FORMAT_MODULE_META,
+  type FormatModuleKey,
+  getProjectFormatState,
+  resetGlobalFormatModule,
+  resetProjectFormatModule,
+  saveGlobalFormatModule,
+  saveProjectFormatModule,
+} from "./services/formatConfig.js";
 import type { GeneratedScript, Storyboard, TranscriptionResult } from "./types/pipeline.js";
 
 const app = express();
@@ -161,12 +170,13 @@ app.get("/api/status", async (_req, res) => {
     remotionStyleContent = await fsp.readFile(projectPaths.remotionStyle, "utf-8");
   }
 
-  const [timestamps, storyboard, scriptStructure, finalVideo, aceStep] = await Promise.all([
+  const [timestamps, storyboard, scriptStructure, finalVideo, aceStep, formats] = await Promise.all([
     readJsonSafe<TranscriptionResult>(projectPaths.timestamps),
     readJsonSafe<Storyboard>(projectPaths.storyboard),
     readJsonSafe<GeneratedScript>(projectPaths.scriptStructure),
     getFileMeta(projectPaths.finalVideo),
     checkAceStepHealth(),
+    getProjectFormatState(projectPaths.root),
   ]);
 
   let scenes: string[] = [];
@@ -183,9 +193,11 @@ app.get("/api/status", async (_req, res) => {
       aceStep,
     },
     config: {
-      styleAnchor: STYLE_ANCHOR,
-      characterPrefix: CHARACTER_CONSISTENCY_PREFIX,
+      styleAnchor: formats.effective.flow_visual.styleAnchor || STYLE_ANCHOR,
+      characterPrefix: formats.effective.flow_visual.characterPrefix || CHARACTER_CONSISTENCY_PREFIX,
     },
+    formats,
+    formatModules: FORMAT_MODULE_META,
     activeProject,
     projects,
     files: {
@@ -299,20 +311,24 @@ app.post("/api/script/generate", async (req, res) => {
     typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico";
   const resolvedDuration = Number(durationSeconds) || 45;
 
+  const { meta, paths } = await getActiveProject();
   try {
-    const { meta } = await getActiveProject();
     await updateProjectTone(meta.slug, resolvedTone);
     await updateProjectDuration(meta.slug, resolvedDuration);
   } catch {
     // Non-fatal if project metadata update fails
   }
 
-  const prompt = buildRetentionScriptPrompt({
-    topic: topic.trim(),
-    durationSeconds: resolvedDuration,
-    tone: resolvedTone,
-    customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
-  });
+  const formats = await getProjectFormatState(paths.root);
+  const prompt = buildRetentionScriptPrompt(
+    {
+      topic: topic.trim(),
+      durationSeconds: resolvedDuration,
+      tone: resolvedTone,
+      customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
+    },
+    formats.effective,
+  );
 
   res.json({ ok: true, prompt });
 });
@@ -428,9 +444,11 @@ app.post("/api/script/elevenlabs", async (req, res) => {
         return;
       }
       const cleanScript = await fsp.readFile(paths.script, "utf-8");
+      const formats = await getProjectFormatState(paths.root);
       const prompt = buildElevenLabsTagPrompt(
         cleanScript,
         typeof tone === "string" ? tone : undefined,
+        formats.effective,
       );
       res.json({ ok: true, prompt });
       return;
@@ -550,13 +568,17 @@ app.post("/api/music/prompt", async (req, res) => {
       typeof topic === "string" && topic.trim() ? topic.trim() : meta.name;
     const resolvedTone =
       typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone;
-    const prompt = buildMusicPrompt({
-      topic: resolvedTopic,
-      scriptText,
-      durationSeconds: resolvedDuration.durationSeconds,
-      tone: resolvedTone,
-      remotionStyle,
-    });
+    const formats = await getProjectFormatState(paths.root);
+    const prompt = buildMusicPrompt(
+      {
+        topic: resolvedTopic,
+        scriptText,
+        durationSeconds: resolvedDuration.durationSeconds,
+        tone: resolvedTone,
+        remotionStyle,
+      },
+      formats.effective,
+    );
     res.json({
       ok: true,
       prompt,
@@ -630,16 +652,20 @@ app.post("/api/music/generate-acestep", async (req, res) => {
       requestedDurationSeconds: durationSeconds,
     });
 
+    const formats = await getProjectFormatState(paths.root);
     const resolvedPrompt =
       typeof customPrompt === "string" && customPrompt.trim()
         ? customPrompt.trim()
-        : buildMusicPrompt({
-            topic: typeof topic === "string" && topic.trim() ? topic.trim() : meta.name,
-            scriptText,
-            durationSeconds: resolvedDuration.durationSeconds,
-            tone: typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone,
-            remotionStyle,
-          });
+        : buildMusicPrompt(
+            {
+              topic: typeof topic === "string" && topic.trim() ? topic.trim() : meta.name,
+              scriptText,
+              durationSeconds: resolvedDuration.durationSeconds,
+              tone: typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone,
+              remotionStyle,
+            },
+            formats.effective,
+          );
 
     appendLog(
       `[ACE-Step] Generando música (${resolvedDuration.durationSeconds}s) para "${meta.name}"...`,
@@ -993,11 +1019,13 @@ app.post("/api/scenes/generate-flow", async (req, res) => {
   void (async () => {
     try {
       appendLog(`[${meta.name}] Generación por lotes en Google Flow iniciada...`);
+      const formats = await getProjectFormatState(paths.root);
       const summary = await generateFlowBatchScenes({
         storyboardPath: paths.storyboard,
         characterRefPath: PATHS.characterRef,
         scenesDir: paths.scenesDir,
         concurrency,
+        flowVisual: formats.effective.flow_visual,
         onProgress: (progress) => {
           jobState.flowProgress = progress;
         },
@@ -1154,12 +1182,14 @@ app.post("/api/scenes/:sceneId/generate-flow", async (req, res) => {
   void (async () => {
     try {
       appendLog(`[${meta.name}] Regenerando escena #${sceneId} en Google Flow...`);
+      const formats = await getProjectFormatState(paths.root);
       const summary = await generateFlowBatchScenes({
         storyboardPath: paths.storyboard,
         characterRefPath: PATHS.characterRef,
         scenesDir: paths.scenesDir,
         concurrency: 1,
         sceneIds: [sceneId],
+        flowVisual: formats.effective.flow_visual,
         onProgress: (progress) => {
           jobState.flowProgress = progress;
         },
@@ -1357,6 +1387,114 @@ app.get("/media/bg_music", async (_req, res) => {
 });
 app.get("/media/watermark", async (_req, res) => {
   await sendImageFile(res, PATHS.watermark);
+});
+
+const VALID_FORMAT_MODULES = new Set<FormatModuleKey>([
+  "prompt_maestro",
+  "guion_limpio",
+  "elevenlabs",
+  "remotion",
+  "storyboard",
+  "flow_visual",
+  "musica",
+]);
+
+app.put("/api/config/global/:moduleKey", async (req, res) => {
+  const moduleKey = req.params.moduleKey as FormatModuleKey;
+  if (!VALID_FORMAT_MODULES.has(moduleKey)) {
+    res.status(400).json({ error: "Módulo de formato inválido." });
+    return;
+  }
+  try {
+    const updated = await saveGlobalFormatModule(moduleKey, req.body ?? {});
+    res.json({ ok: true, formats: updated });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error guardando formato global" });
+  }
+});
+
+app.post("/api/config/global/reset", async (req, res) => {
+  const moduleKey = req.body?.moduleKey as FormatModuleKey | undefined;
+  if (moduleKey && !VALID_FORMAT_MODULES.has(moduleKey)) {
+    res.status(400).json({ error: "Módulo de formato inválido." });
+    return;
+  }
+  try {
+    const updated = await resetGlobalFormatModule(moduleKey);
+    res.json({ ok: true, formats: updated });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error restaurando formato global" });
+  }
+});
+
+app.put("/api/config/project/:moduleKey", async (req, res) => {
+  const moduleKey = req.params.moduleKey as FormatModuleKey;
+  if (!VALID_FORMAT_MODULES.has(moduleKey)) {
+    res.status(400).json({ error: "Módulo de formato inválido." });
+    return;
+  }
+  try {
+    const { meta, paths } = await getActiveProject();
+    const effective = await saveProjectFormatModule(paths.root, moduleKey, req.body ?? {});
+    await touchProject(meta.slug);
+    res.json({ ok: true, effective });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error guardando formato del proyecto" });
+  }
+});
+
+app.post("/api/config/project/reset", async (req, res) => {
+  const moduleKey = req.body?.moduleKey as FormatModuleKey | undefined;
+  if (moduleKey && !VALID_FORMAT_MODULES.has(moduleKey)) {
+    res.status(400).json({ error: "Módulo de formato inválido." });
+    return;
+  }
+  try {
+    const { meta, paths } = await getActiveProject();
+    const effective = await resetProjectFormatModule(paths.root, moduleKey);
+    await touchProject(meta.slug);
+    res.json({ ok: true, effective });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error restaurando formato del proyecto" });
+  }
+});
+
+app.delete("/api/project/section/:sectionKey", async (req, res) => {
+  const sectionKey = req.params.sectionKey as FormatModuleKey;
+  if (!VALID_FORMAT_MODULES.has(sectionKey)) {
+    res.status(400).json({ error: "Sección inválida." });
+    return;
+  }
+  try {
+    const { meta, paths } = await getActiveProject();
+    if (sectionKey === "guion_limpio") {
+      if (fs.existsSync(paths.script)) await fsp.unlink(paths.script);
+      if (!fs.existsSync(paths.voiceover) && fs.existsSync(paths.timestamps)) {
+        await fsp.unlink(paths.timestamps);
+      }
+    } else if (sectionKey === "elevenlabs") {
+      if (fs.existsSync(paths.scriptElevenLabs)) await fsp.unlink(paths.scriptElevenLabs);
+    } else if (sectionKey === "remotion") {
+      if (fs.existsSync(paths.remotionStyle)) await fsp.unlink(paths.remotionStyle);
+    } else if (sectionKey === "storyboard") {
+      if (fs.existsSync(paths.storyboard)) await fsp.unlink(paths.storyboard);
+    } else if (sectionKey === "flow_visual") {
+      if (fs.existsSync(paths.scenesDir)) {
+        const files = await fsp.readdir(paths.scenesDir);
+        await Promise.all(
+          files
+            .filter((f) => f.endsWith(".png"))
+            .map((f) => fsp.unlink(path.join(paths.scenesDir, f))),
+        );
+      }
+    } else if (sectionKey === "musica") {
+      if (fs.existsSync(paths.bgMusic)) await fsp.unlink(paths.bgMusic);
+    }
+    await touchProject(meta.slug);
+    res.json({ ok: true, sectionKey });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : "Error al limpiar la sección" });
+  }
 });
 
 app.listen(PORT, () => {

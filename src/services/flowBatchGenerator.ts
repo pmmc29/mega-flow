@@ -71,13 +71,16 @@ export async function openFlowLoginSession(): Promise<{ url: string; alreadyOpen
   return { url, alreadyOpen: false };
 }
 
-function buildFullFlowPrompt(scene: Scene): string {
+function buildFullFlowPrompt(
+  scene: Scene,
+  flowVisual?: { styleAnchor?: string; characterPrefix?: string },
+): string {
   const parts: string[] = [];
   if (scene.use_character) {
-    parts.push(CHARACTER_CONSISTENCY_PREFIX.trim());
+    parts.push((flowVisual?.characterPrefix ?? CHARACTER_CONSISTENCY_PREFIX).trim());
   }
   parts.push(scene.image_prompt.trim());
-  parts.push(STYLE_ANCHOR);
+  parts.push((flowVisual?.styleAnchor ?? STYLE_ANCHOR).trim());
   return parts.join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -926,6 +929,7 @@ export interface FlowBatchOptions {
   scenesDir: string;
   concurrency?: number;
   sceneIds?: number[];
+  flowVisual?: { styleAnchor?: string; characterPrefix?: string };
   onProgress?: (progress: { completed: number; total: number; lastSceneId: number }) => void;
 }
 
@@ -1035,7 +1039,7 @@ export async function generateFlowBatchScenes(
         const scene = next.scene;
 
         try {
-          const fullPrompt = buildFullFlowPrompt(scene);
+          const fullPrompt = buildFullFlowPrompt(scene, options.flowVisual);
           const needsCharacter = Boolean(
             scene.use_character && fs.existsSync(options.characterRefPath),
           );

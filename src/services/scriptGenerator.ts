@@ -4,110 +4,95 @@ import type {
   ScriptGenerationOptions,
   Storyboard,
 } from "../types/pipeline.js";
+import {
+  applyTemplateVars,
+  DEFAULT_GLOBAL_FORMATS,
+  type ModularFormats,
+} from "./formatConfig.js";
 
-const ELEVENLABS_TAG_GUIDE = `Reglas para la versión ElevenLabs v3 / v4:
-- Conserva exactamente las mismas palabras habladas en español de la versión limpia.
-- Inserta instrucciones breves entre corchetes en INGLÉS justo antes de la frase donde cambia la emoción, entonación o reacción:
-  - Emociones: [curious], [excited], [serious], [surprised], [mischievously], [worried], [confident]
-  - Entonación: [whispers], [shouts], [slows down], [fast]
-  - Reacciones humanas: [sighs], [laughs], [chuckles], [gasps], [clears throat]
-- Usa entre 4 y 8 etiquetas bien distribuidas para que suene natural y expresivo sin saturar cada frase.`;
-
-export function buildRetentionScriptPrompt(options: ScriptGenerationOptions): string {
+export function buildRetentionScriptPrompt(
+  options: ScriptGenerationOptions,
+  formats: ModularFormats = DEFAULT_GLOBAL_FORMATS,
+): string {
   const targetWords = Math.round((options.durationSeconds / 60) * 140);
   const approxScenes = Math.max(4, Math.round(options.durationSeconds / 4));
+  const midEndSeconds = Math.max(20, options.durationSeconds - 10);
+  const customLine = options.customInstructions?.trim()
+    ? `- Instrucciones adicionales: ${options.customInstructions.trim()}`
+    : "";
 
-  const lines = [
-    `Actúa como un guionista experto en retención máxima y director visual para videos verticales cortos (YouTube Shorts, TikTok, Instagram Reels) del canal "Mega Studio".`,
+  const vars = {
+    topic: options.topic,
+    durationSeconds: options.durationSeconds,
+    targetWords,
+    approxScenes,
+    midEndSeconds,
+    tone: options.tone,
+    customInstructions: customLine,
+  };
+
+  const roleIntro = applyTemplateVars(formats.prompt_maestro.roleIntro, vars);
+  const retentionStructure = applyTemplateVars(formats.prompt_maestro.retentionStructure, vars);
+  const outputRules = applyTemplateVars(formats.prompt_maestro.outputRules, vars);
+
+  const guionRules = applyTemplateVars(formats.guion_limpio.rules, vars);
+  const guionHint = applyTemplateVars(formats.guion_limpio.placeholderHint, vars);
+
+  const elevenGuide = applyTemplateVars(formats.elevenlabs.tagGuide, vars);
+  const elevenHint = applyTemplateVars(formats.elevenlabs.placeholderHint, vars);
+
+  const remotionSchema = applyTemplateVars(formats.remotion.schemaExample, vars);
+  const remotionNotes = applyTemplateVars(formats.remotion.notes, vars);
+
+  const storyboardSchema = applyTemplateVars(formats.storyboard.schemaExample, vars);
+  const storyboardNotes = applyTemplateVars(formats.storyboard.notes, vars);
+
+  const parts = [
+    roleIntro,
     "",
-    `Datos del video:`,
-    `- Tema / Idea: ${options.topic}`,
-    `- Duración objetivo: ~${options.durationSeconds} segundos (aproximadamente ${targetWords} palabras a ritmo de locución normal ~140 palabras/min).`,
-    `- Tono deseado: ${options.tone}`,
+    retentionStructure,
+    "",
+    guionRules,
+    "",
+    elevenGuide,
+    "",
+    outputRules,
+    "",
+    "```text",
+    "=== GUION_LIMPIO ===",
+    guionHint,
+    "",
+    "=== ELEVENLABS ===",
+    elevenHint,
+    "",
+    "=== REMOTION_JSON ===",
+    remotionSchema,
+    "",
+    "=== STORYBOARD_JSON ===",
+    storyboardSchema,
+    "```",
+    "",
+    remotionNotes,
+    "",
+    storyboardNotes,
   ];
 
-  if (options.customInstructions?.trim()) {
-    lines.push(`- Instrucciones adicionales: ${options.customInstructions.trim()}`);
-  }
-
-  lines.push(
-    "",
-    `Estructura obligatoria de máxima retención:`,
-    `1. Hook (0–3s): Frena el scroll al instante con un dato contraintuitivo, pregunta directa o afirmación impactante. PROHIBIDO saludar ("Hola", "Bienvenidos", "Hoy vamos a ver").`,
-    `2. Tensión (3–10s): Abre una brecha de curiosidad explicando por qué importa o qué creencia común es falsa.`,
-    `3. Micro-beats visuales (10–${Math.max(20, options.durationSeconds - 10)}s): bloques cortos (de 3 a 5 segundos cada uno) con cambios de ritmo ("Pero aquí viene lo raro...", "Lo que casi nadie nota...") y analogías fáciles de ilustrar.`,
-    `4. Clímax: Entrega el momento "Aha!" o revelación principal.`,
-    `5. Loop / CTA suave: Cierre circular que conecta con la primera frase o deja una pregunta abierta específica para comentarios (sin pedir likes genéricos).`,
-    "",
-    ELEVENLABS_TAG_GUIDE,
-    "",
-    `Formato de respuesta OBLIGATORIO:`,
-    `- Devuelve TODA tu respuesta dentro de UN ÚNICO bloque de código (\`\`\`text ... \`\`\`) para que pueda copiarlo con un solo clic.`,
-    `- No escribas explicaciones ni texto fuera de ese bloque.`,
-    `- Dentro de ese único bloque, usa exactamente estos cuatro separadores en este orden:`,
-    ``,
-    `\`\`\`text`,
-    `=== GUION_LIMPIO ===`,
-    `(Solo el texto hablado en español, fluido, sin títulos de bloques ni etiquetas entre corchetes)`,
-    ``,
-    `=== ELEVENLABS ===`,
-    `(Exactamente el mismo texto hablado en español, pero con las etiquetas de audio [curious], [whispers], [laughs], etc. insertadas en los momentos clave)`,
-    ``,
-    `=== REMOTION_JSON ===`,
-    `{`,
-    `  "hook_badge": "TEXTO CORTO (2-4 palabras gancho para los primeros 2.6s, ej: DATO OCULTO)",`,
-    `  "accent_color": "#HEX_COLOR",`,
-    `  "caption_style": "bold_outline | pill_dark | glow",`,
-    `  "vignette": 0.35,`,
-    `  "hook_shake": true,`,
-    `  "default_transition": "cut | fade | slide_up | zoom_punch",`,
-    `  "scene_transitions": ["zoom_punch", "cut", "slide_up"],`,
-    `  "music_volume": 0.12`,
-    `}`,
-    ``,
-    `=== STORYBOARD_JSON ===`,
-    `{`,
-    `  "title": "Título atractivo y corto para Shorts/Reels/TikTok",`,
-    `  "caption": "Descripción breve para redes + #MegaExplains #Curiosidades",`,
-    `  "scenes": [`,
-    `    {`,
-    `      "id": 1,`,
-    `      "start": 0.0,`,
-    `      "end": 3.8,`,
-    `      "use_character": true,`,
-    `      "image_prompt": "Detailed vertical 9:16 scene prompt in English, no embedded text, leaving clean negative space in the lower third for subtitles...",`,
-    `      "camera_motion": "zoom_in"`,
-    `    }`,
-    `  ]`,
-    `}`,
-    `\`\`\``,
-    ``,
-    `Notas para REMOTION_JSON (JSON válido sin comentarios, adaptado al tema, duración y tono "${options.tone}"):`,
-    `- "vignette": número entre 0 y 0.8 (0 = sin viñeta, 0.55 = ambiente oscuro/misterio).`,
-    `- "hook_shake" (true/false): vibración sutil en la escena 1 para frenar el scroll.`,
-    `- "scene_transitions": array opcional con una transición por escena ("cut", "fade", "slide_up", "zoom_punch").`,
-    ``,
-    `Notas para STORYBOARD_JSON (JSON válido sin comentarios):`,
-    `- Divide el guion en ~${approxScenes} escenas secuenciales de 3.0 a 5.0 segundos cada una, cubriendo desde 0.0 hasta ${options.durationSeconds}.0 segundos (el "end" de cada escena debe coincidir exactamente con el "start" de la siguiente).`,
-    `- "use_character": true cuando la escena requiera reacción emocional, presentación o interacción del anfitrión; false para diagramas, objetos, escenarios o conceptos abstractos.`,
-    `- "image_prompt": SIEMPRE en INGLÉS, muy descriptivo, sin texto dentro de la imagen y dejando espacio visual libre en el tercio inferior para los subtítulos.`,
-    `- "camera_motion": varía entre "zoom_in", "zoom_out", "pan_left", "pan_right".`,
-  );
-
-  return lines.join("\n");
+  return parts.filter((line, idx, arr) => !(line === "" && arr[idx - 1] === "")).join("\n");
 }
 
 export function buildElevenLabsTagPrompt(
   cleanScript: string,
   tone: string = "curioso y dinámico",
+  formats: ModularFormats = DEFAULT_GLOBAL_FORMATS,
 ): string {
+  const elevenGuide = applyTemplateVars(formats.elevenlabs.tagGuide, { tone });
   return [
     `Actúa como un director de doblaje experto en ElevenLabs v3 y v4.`,
     `Toma el siguiente guion en español y devuélveme exactamente el mismo texto hablado, sin cambiar ni eliminar ninguna palabra, añadiendo únicamente etiquetas de audio de ElevenLabs entre corchetes.`,
     "",
     `Tono deseado: ${tone}`,
     "",
-    ELEVENLABS_TAG_GUIDE,
+    elevenGuide,
     "",
     `Guion original:`,
     cleanScript.trim(),
@@ -311,34 +296,31 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
   };
 }
 
-export function buildMusicPrompt(options: {
-  topic: string;
-  scriptText: string;
-  durationSeconds?: number;
-  tone?: string;
-  remotionStyle?: {
-    hook_badge?: string;
-    vignette?: number;
-    default_transition?: string;
-  } | null;
-}): string {
+export function buildMusicPrompt(
+  options: {
+    topic: string;
+    scriptText: string;
+    durationSeconds?: number;
+    tone?: string;
+    remotionStyle?: {
+      hook_badge?: string;
+      vignette?: number;
+      default_transition?: string;
+    } | null;
+  },
+  formats: ModularFormats = DEFAULT_GLOBAL_FORMATS,
+): string {
   const tone = (options.tone || "curioso y dinámico").trim().toLowerCase();
   const words = options.scriptText.trim().split(/\s+/).filter(Boolean).length;
   const estimatedDuration =
     options.durationSeconds || Math.max(20, Math.round((words / 140) * 60));
 
-  const moodByTone: Record<string, string> = {
-    "curioso y dinámico":
-      "curious, upbeat, inquisitive marimba plucks, soft analog synth pulse, crisp minimal percussion, 112 BPM",
-    "misterio y urgencia":
-      "mysterious, tense, cinematic low synth bass, subtle ticking percussion, atmospheric pads, 100 BPM",
-    "educativo cercano":
-      "warm, friendly, lo-fi acoustic guitar, soft Rhodes electric piano, gentle groove, 95 BPM",
-    "humorístico e irónico":
-      "playful, quirky, pizzicato strings, bouncy bassline, lighthearted woodwinds, 118 BPM",
-  };
-
-  const mood = moodByTone[tone] ?? moodByTone["curioso y dinámico"];
+  const moods = formats.musica.moods || DEFAULT_GLOBAL_FORMATS.musica.moods;
+  const mood =
+    moods[tone] ??
+    moods["curioso y dinámico"] ??
+    Object.values(moods)[0] ??
+    DEFAULT_GLOBAL_FORMATS.musica.moods["curioso y dinámico"];
   const hookSnippet = options.scriptText.trim().replace(/\s+/g, " ").slice(0, 140);
   const pacingHint =
     options.remotionStyle?.default_transition === "zoom_punch" ||
@@ -350,10 +332,12 @@ export function buildMusicPrompt(options: {
       ? ", slightly dark cinematic atmosphere"
       : "";
 
-  return [
-    `Instrumental background track (~${estimatedDuration}s) for a vertical explainer video about "${options.topic.trim()}".`,
-    `Script opening context: "${hookSnippet}..."`,
-    `Style: ${mood}${atmosphereHint}; ${pacingHint}.`,
-    `Clean, uncluttered mix leaving midrange space for Spanish voiceover, soft intro for the hook, steady loopable groove, NO vocals, NO lyrics, NO harsh leads.`,
-  ].join(" ");
+  return applyTemplateVars(formats.musica.template, {
+    durationSeconds: estimatedDuration,
+    topic: options.topic.trim(),
+    hookSnippet,
+    mood,
+    atmosphereHint,
+    pacingHint,
+  });
 }

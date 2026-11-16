@@ -1251,3 +1251,273 @@ code {
   color: var(--ink-primary);
   text-align: center;
 }
+
+/* App Shell + Side Menu */
+.app-shell {
+  width: min(1320px, 95vw);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.side-menu {
+  position: sticky;
+  top: 90px;
+  padding: 16px 0;
+}
+
+.side-menu-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.side-menu-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-muted);
+  padding: 2px 8px 6px;
+}
+
+.side-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.side-nav-item:hover {
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+
+.side-nav-item.is-active {
+  background: var(--ink-primary);
+  color: #fff;
+}
+
+.workspace-main {
+  min-width: 0;
+}
+
+/* Studio Subtabs */
+.studio-subtabs {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.studio-subtab {
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.studio-subtab:hover {
+  background: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+
+.studio-subtab.is-active {
+  background: var(--bg-subtle);
+  border-color: var(--border-hairline);
+  color: var(--ink-primary);
+}
+
+/* Resumen de Entradas */
+.inputs-summary-card {
+  margin-bottom: 18px;
+}
+
+.inputs-summary-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.inputs-summary-head h3 {
+  margin: 0 0 2px;
+  font-size: 1rem;
+}
+
+.summary-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.summary-row-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  min-width: 145px;
+}
+
+.summary-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+}
+
+.summary-chip.is-applied {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.summary-chip.is-pending {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* Config Modules (Global & Project) */
+.config-modules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.config-module-card {
+  padding: 18px;
+}
+
+.config-module-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.config-module-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.config-module-title-row h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.config-module-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.config-editor-drawer {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.config-field label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.config-vars-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+}
+
+.config-var-pill {
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  color: var(--ink-secondary);
+  border: 1px solid var(--border-hairline);
+}
+
+@media (max-width: 860px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .side-menu {
+    position: static;
+    padding: 12px 0 0;
+  }
+
+  .side-menu-group {
+    flex-direction: row;
+    align-items: center;
+    overflow-x: auto;
+  }
+
+  .side-menu-label {
+    display: none;
+  }
+
+  .side-nav-item {
+    width: auto;
+    white-space: nowrap;
+  }
+}

@@ -4,6 +4,9 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 let pollTimer = null;
 let bundleDirty = false;
 let latestStatus = null;
+let forceShow4in1Cards = false;
+const openProjectFormatModules = new Set();
+const openGlobalFormatModules = new Set();
 
 function formatBytes(bytes) {
   if (!bytes) return "0 B";
@@ -625,6 +628,8 @@ async function fetchStatus() {
   }
 
   renderOutputs(data.outputs, data.config);
+  renderInputsSummaryAndVisibility(data);
+  renderModularConfigs(data);
 }
 
 function resetAssetPreviewCache(assetKey) {
@@ -1382,6 +1387,493 @@ function setupSceneUploaders() {
   });
 }
 
+function escHtml(str) {
+  return String(str ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function switchMainNav(target) {
+  $$("[data-main-nav]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.mainNav === target);
+  });
+  $("#view-studio")?.classList.toggle("hidden", target !== "studio");
+  $("#view-global-config")?.classList.toggle("hidden", target !== "global-config");
+}
+
+function switchStudioSubtab(target) {
+  $$("[data-studio-subtab]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.studioSubtab === target);
+  });
+  $("#subview-panel")?.classList.toggle("hidden", target !== "panel");
+  $("#subview-project-config")?.classList.toggle("hidden", target !== "project-config");
+}
+
+function setupNavigation() {
+  $$("[data-main-nav]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchMainNav(btn.dataset.mainNav);
+    });
+  });
+
+  $$("[data-studio-subtab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      switchStudioSubtab(btn.dataset.studioSubtab);
+    });
+  });
+
+  $("#btn-goto-project-config")?.addEventListener("click", () => {
+    switchMainNav("studio");
+    switchStudioSubtab("project-config");
+  });
+
+  $("#btn-toggle-4in1-cards")?.addEventListener("click", () => {
+    forceShow4in1Cards = !forceShow4in1Cards;
+    if (latestStatus) {
+      renderInputsSummaryAndVisibility(latestStatus);
+    }
+  });
+}
+
+function renderInputsSummaryAndVisibility(data) {
+  const hasClean = Boolean(data.files?.script?.exists && data.files.script.content?.trim());
+  const hasEleven = Boolean(
+    data.files?.scriptElevenLabs?.exists && data.files.scriptElevenLabs.content?.trim(),
+  );
+  const hasRemotion = Boolean(
+    data.files?.remotionStyle?.exists && data.files.remotionStyle.content?.trim(),
+  );
+  const sceneCount = data.outputs?.storyboard?.scenes?.length || 0;
+  const hasStoryboard = sceneCount > 0;
+  const bundleComplete = hasClean && hasEleven && hasRemotion && hasStoryboard;
+
+  const hasAudio = Boolean(data.files?.voiceover?.exists);
+  const hasCharacter = Boolean(data.files?.characterRef?.exists);
+  const hasBgMusic = Boolean(data.files?.bgMusic?.exists);
+  const hasWatermark = Boolean(data.files?.watermark?.exists);
+  const generatedScenes = (data.outputs?.scenes || []).length;
+
+  const summaryCard = $("#inputs-summary-card");
+  const cardGenerator = $("#card-generator");
+  const cardScript = $("#card-script");
+  const cardCharacter = $("#card-character");
+  const toggleBtn = $("#btn-toggle-4in1-cards");
+
+  const shouldHide4in1 = bundleComplete && !forceShow4in1Cards;
+  if (cardGenerator) cardGenerator.classList.toggle("hidden", shouldHide4in1);
+  if (cardScript) cardScript.classList.toggle("hidden", shouldHide4in1);
+  if (cardCharacter) {
+    cardCharacter.classList.toggle("hidden", shouldHide4in1 && hasCharacter);
+  }
+  if (toggleBtn) {
+    toggleBtn.textContent = forceShow4in1Cards
+      ? "Ocultar importador 4 en 1"
+      : "Mostrar importador 4 en 1";
+  }
+
+  const showSummary = bundleComplete || hasClean || hasStoryboard;
+  if (summaryCard) {
+    summaryCard.classList.toggle("hidden", !showSummary);
+  }
+
+  const appliedChips = [];
+  const pendingChips = [];
+
+  if (hasClean) appliedChips.push("Guion limpio");
+  else pendingChips.push("Guion limpio");
+
+  if (hasEleven) appliedChips.push("ElevenLabs");
+  else pendingChips.push("ElevenLabs");
+
+  if (hasRemotion) appliedChips.push("Remotion JSON");
+  else pendingChips.push("Remotion JSON (preset)");
+
+  if (hasStoryboard) {
+    const sceneLabel =
+      generatedScenes > 0
+        ? `Storyboard (${generatedScenes}/${sceneCount} imgs)`
+        : `Storyboard (${sceneCount} escenas)`;
+    appliedChips.push(sceneLabel);
+  } else {
+    pendingChips.push("Storyboard JSON");
+  }
+
+  if (hasAudio) appliedChips.push("Audio de Locución");
+  else pendingChips.push("Audio de Locución (opcional)");
+
+  if (hasCharacter) appliedChips.push("Personaje de Referencia");
+  else pendingChips.push("Personaje de Referencia");
+
+  if (hasBgMusic) appliedChips.push("Música de Fondo");
+  else pendingChips.push("Música de Fondo (opcional)");
+
+  if (hasWatermark) appliedChips.push("Marca de Agua");
+  else pendingChips.push("Marca de Agua (opcional)");
+
+  const appliedEl = $("#summary-applied-chips");
+  const pendingEl = $("#summary-pending-chips");
+  const subtitleEl = $("#inputs-summary-subtitle");
+
+  if (subtitleEl) {
+    subtitleEl.textContent = bundleComplete
+      ? "Bloque 4 en 1 aplicado y guardado. Las tarjetas completadas se ocultaron para mantener limpio el panel."
+      : "Avance parcial guardado en este proyecto.";
+  }
+
+  if (appliedEl) {
+    appliedEl.innerHTML =
+      appliedChips.length > 0
+        ? appliedChips.map((c) => `<span class="summary-chip is-applied">✓ ${escHtml(c)}</span>`).join("")
+        : '<span class="meta-text">Nada aplicado aún</span>';
+  }
+
+  if (pendingEl) {
+    pendingEl.innerHTML =
+      pendingChips.length > 0
+        ? pendingChips.map((c) => `<span class="summary-chip is-pending">${escHtml(c)}</span>`).join("")
+        : '<span class="summary-chip is-applied">✓ Todo listo</span>';
+  }
+}
+
+const MODULE_FIELD_SPECS = {
+  prompt_maestro: [
+    { key: "roleIntro", label: "Rol y Datos del Video", rows: 5 },
+    { key: "retentionStructure", label: "Estructura de Retención", rows: 6 },
+    { key: "outputRules", label: "Reglas de Formato de Salida", rows: 4 },
+  ],
+  guion_limpio: [
+    { key: "rules", label: "Reglas de Guion Limpio", rows: 4 },
+    { key: "placeholderHint", label: "Indicador dentro del bloque", rows: 2 },
+  ],
+  elevenlabs: [
+    { key: "tagGuide", label: "Guía de Etiquetas ElevenLabs v3/v4", rows: 6 },
+    { key: "placeholderHint", label: "Indicador dentro del bloque", rows: 2 },
+  ],
+  remotion: [
+    { key: "schemaExample", label: "Esquema JSON de Ejemplo", rows: 9 },
+    { key: "notes", label: "Notas / Reglas para Remotion", rows: 4 },
+  ],
+  storyboard: [
+    { key: "schemaExample", label: "Esquema JSON de Storyboard", rows: 10 },
+    { key: "notes", label: "Notas / Reglas para Storyboard", rows: 5 },
+  ],
+  flow_visual: [
+    { key: "styleAnchor", label: "Ancla de Estilo Visual (STYLE_ANCHOR)", rows: 3 },
+    { key: "characterPrefix", label: "Prefijo de Consistencia de Personaje", rows: 2 },
+  ],
+  musica: [
+    { key: "template", label: "Plantilla de Prompt Musical", rows: 4 },
+    { key: "moodsJson", label: "Moods por Tono (JSON)", rows: 6 },
+  ],
+};
+
+function getProjectSectionStatus(moduleKey, data) {
+  const files = data.files || {};
+  const outputs = data.outputs || {};
+  switch (moduleKey) {
+    case "guion_limpio": {
+      const ok = Boolean(files.script?.exists && files.script.content?.trim());
+      return { applied: ok, label: ok ? `Aplicado (${formatBytes(files.script.size)})` : "Pendiente" };
+    }
+    case "elevenlabs": {
+      const ok = Boolean(files.scriptElevenLabs?.exists && files.scriptElevenLabs.content?.trim());
+      return {
+        applied: ok,
+        label: ok ? `Aplicado (${formatBytes(files.scriptElevenLabs.size)})` : "Pendiente",
+      };
+    }
+    case "remotion": {
+      const ok = Boolean(files.remotionStyle?.exists && files.remotionStyle.content?.trim());
+      return { applied: ok, label: ok ? "Aplicado" : "Preset por defecto" };
+    }
+    case "storyboard": {
+      const count = outputs.storyboard?.scenes?.length || 0;
+      return { applied: count > 0, label: count > 0 ? `Aplicado (${count} escenas)` : "Pendiente" };
+    }
+    case "flow_visual": {
+      const count = (outputs.scenes || []).length;
+      return { applied: count > 0, label: count > 0 ? `${count} escenas generadas` : "Sin escenas" };
+    }
+    case "musica": {
+      const ok = Boolean(files.bgMusic?.exists && files.bgMusic.scope === "project");
+      return {
+        applied: ok,
+        label: ok ? `Aplicado (${formatBytes(files.bgMusic.size)})` : "Opcional / Sin pista",
+      };
+    }
+    default:
+      return { applied: false, label: "Plantilla base" };
+  }
+}
+
+function buildModuleEditorHtml(moduleMeta, formatObj, scope) {
+  const specs = MODULE_FIELD_SPECS[moduleMeta.key] || [];
+  const varsHtml =
+    moduleMeta.variables && moduleMeta.variables.length > 0
+      ? `<div class="config-vars-bar"><span>Variables:</span>${moduleMeta.variables
+          .map((v) => `<code class="config-var-pill">${escHtml(v)}</code>`)
+          .join("")}</div>`
+      : "";
+
+  const fieldsHtml = specs
+    .map((spec) => {
+      const rawVal =
+        spec.key === "moodsJson"
+          ? JSON.stringify(formatObj?.moods || {}, null, 2)
+          : formatObj?.[spec.key] ?? "";
+      return `
+        <div class="config-field">
+          <label>${escHtml(spec.label)}</label>
+          <textarea
+            class="mono-textarea config-field-input"
+            data-field-key="${escHtml(spec.key)}"
+            rows="${spec.rows}"
+          >${escHtml(rawVal)}</textarea>
+        </div>
+      `;
+    })
+    .join("");
+
+  const resetLabel = scope === "project" ? "Usar Global" : "Restaurar módulo";
+  const saveLabel = scope === "project" ? "Guardar en Proyecto" : "Guardar Global";
+
+  return `
+    <div class="config-editor-drawer">
+      ${varsHtml}
+      ${fieldsHtml}
+      <div class="editor-actions">
+        <button type="button" class="btn btn-primary btn-sm" data-config-save="${escHtml(moduleMeta.key)}" data-config-scope="${scope}">
+          ${saveLabel}
+        </button>
+        <button type="button" class="btn btn-ghost btn-sm" data-config-reset="${escHtml(moduleMeta.key)}" data-config-scope="${scope}">
+          ${resetLabel}
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function renderModularConfigs(data) {
+  const modules = data.formatModules || [];
+  const formatsState = data.formats;
+  if (!formatsState || modules.length === 0) return;
+
+  const projectList = $("#project-config-list");
+  if (projectList && !projectList.contains(document.activeElement)) {
+    projectList.innerHTML = modules
+      .map((m) => {
+        const isOpen = openProjectFormatModules.has(m.key);
+        const isCustom = Boolean(formatsState.customized?.[m.key]);
+        const sectionStatus = getProjectSectionStatus(m.key, data);
+        const effectiveObj = formatsState.effective?.[m.key] || {};
+
+        return `
+          <article class="card config-module-card" data-module-card="${escHtml(m.key)}">
+            <div class="config-module-head">
+              <div>
+                <div class="config-module-title-row">
+                  <h3>${escHtml(m.label)}</h3>
+                  ${
+                    m.hasProjectData
+                      ? `<span class="summary-chip ${sectionStatus.applied ? "is-applied" : ""}">${escHtml(sectionStatus.label)}</span>`
+                      : ""
+                  }
+                  <span class="badge ${isCustom ? "badge-required" : "badge-recommended"}">
+                    ${isCustom ? "Personalizado" : "Heredado de Global"}
+                  </span>
+                </div>
+                <p class="card-help">${escHtml(m.description)}</p>
+              </div>
+              <div class="config-module-actions">
+                ${
+                  m.hasProjectData && sectionStatus.applied
+                    ? `<button type="button" class="btn btn-ghost btn-xs danger-text" data-clean-section="${escHtml(m.key)}">Limpiar</button>`
+                    : ""
+                }
+                <button type="button" class="btn btn-secondary btn-xs" data-toggle-format="${escHtml(m.key)}" data-config-scope="project">
+                  ${isOpen ? "Ocultar Formato" : "Formato"}
+                </button>
+              </div>
+            </div>
+            ${isOpen ? buildModuleEditorHtml(m, effectiveObj, "project") : ""}
+          </article>
+        `;
+      })
+      .join("");
+  }
+
+  const globalList = $("#global-config-list");
+  if (globalList && !globalList.contains(document.activeElement)) {
+    globalList.innerHTML = modules
+      .map((m) => {
+        const isOpen = openGlobalFormatModules.has(m.key);
+        const globalObj = formatsState.global?.[m.key] || {};
+
+        return `
+          <article class="card config-module-card" data-module-card="${escHtml(m.key)}">
+            <div class="config-module-head">
+              <div>
+                <div class="config-module-title-row">
+                  <h3>${escHtml(m.label)}</h3>
+                </div>
+                <p class="card-help">${escHtml(m.description)}</p>
+              </div>
+              <div class="config-module-actions">
+                <button type="button" class="btn btn-secondary btn-xs" data-toggle-format="${escHtml(m.key)}" data-config-scope="global">
+                  ${isOpen ? "Ocultar Formato" : "Editar Formato"}
+                </button>
+              </div>
+            </div>
+            ${isOpen ? buildModuleEditorHtml(m, globalObj, "global") : ""}
+          </article>
+        `;
+      })
+      .join("");
+  }
+}
+
+function collectModulePayload(cardEl, moduleKey) {
+  const payload = {};
+  cardEl.querySelectorAll(".config-field-input").forEach((el) => {
+    const key = el.getAttribute("data-field-key");
+    if (!key) return;
+    if (moduleKey === "musica" && key === "moodsJson") {
+      payload.moods = JSON.parse(el.value);
+    } else {
+      payload[key] = el.value;
+    }
+  });
+  return payload;
+}
+
+function setupModularConfigHandlers() {
+  document.addEventListener("click", async (event) => {
+    const toggleBtn = event.target.closest("[data-toggle-format]");
+    if (toggleBtn) {
+      const moduleKey = toggleBtn.getAttribute("data-toggle-format");
+      const scope = toggleBtn.getAttribute("data-config-scope");
+      const set = scope === "project" ? openProjectFormatModules : openGlobalFormatModules;
+      if (set.has(moduleKey)) set.delete(moduleKey);
+      else set.add(moduleKey);
+      if (latestStatus) renderModularConfigs(latestStatus);
+      return;
+    }
+
+    const saveBtn = event.target.closest("[data-config-save]");
+    if (saveBtn) {
+      const moduleKey = saveBtn.getAttribute("data-config-save");
+      const scope = saveBtn.getAttribute("data-config-scope");
+      const cardEl = saveBtn.closest("[data-module-card]");
+      if (!moduleKey || !cardEl) return;
+
+      let payload;
+      try {
+        payload = collectModulePayload(cardEl, moduleKey);
+      } catch {
+        showToast("El campo JSON de Moods no tiene un JSON válido.", true);
+        return;
+      }
+
+      saveBtn.disabled = true;
+      try {
+        const url =
+          scope === "project"
+            ? `/api/config/project/${moduleKey}`
+            : `/api/config/global/${moduleKey}`;
+        const res = await fetch(url, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo guardar el formato", true);
+          return;
+        }
+        showToast(
+          scope === "project"
+            ? "Formato guardado en este proyecto"
+            : "Formato global actualizado (el Prompt Maestro usará este cambio)",
+        );
+        await fetchStatus();
+      } finally {
+        saveBtn.disabled = false;
+      }
+      return;
+    }
+
+    const resetBtn = event.target.closest("[data-config-reset]");
+    if (resetBtn) {
+      const moduleKey = resetBtn.getAttribute("data-config-reset");
+      const scope = resetBtn.getAttribute("data-config-scope");
+      const url =
+        scope === "project" ? "/api/config/project/reset" : "/api/config/global/reset";
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ moduleKey }),
+      });
+      if (!res.ok) {
+        showToast("No se pudo restaurar el módulo", true);
+        return;
+      }
+      showToast(
+        scope === "project" ? "Sección restaurada a Config. Global" : "Módulo global restaurado",
+      );
+      await fetchStatus();
+      return;
+    }
+
+    const cleanBtn = event.target.closest("[data-clean-section]");
+    if (cleanBtn) {
+      const sectionKey = cleanBtn.getAttribute("data-clean-section");
+      if (!sectionKey) return;
+      cleanBtn.disabled = true;
+      try {
+        const res = await fetch(`/api/project/section/${sectionKey}`, { method: "DELETE" });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "No se pudo limpiar la sección", true);
+          return;
+        }
+        bundleDirty = false;
+        showToast("Sección limpiada del proyecto");
+        await fetchStatus();
+      } finally {
+        cleanBtn.disabled = false;
+      }
+    }
+  });
+
+  $("#btn-reset-all-project-formats")?.addEventListener("click", async () => {
+    const res = await fetch("/api/config/project/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      showToast("Todos los formatos del proyecto ahora heredan de Config. Global");
+      await fetchStatus();
+    }
+  });
+
+  $("#btn-reset-all-global-formats")?.addEventListener("click", async () => {
+    const res = await fetch("/api/config/global/reset", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (res.ok) {
+      showToast("Todos los formatos globales restaurados por defecto");
+      await fetchStatus();
+    }
+  });
+}
+
+setupNavigation();
+setupModularConfigHandlers();
 setupProjectSwitcher();
 setupDropzones();
 setupBundleEditor();

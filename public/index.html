@@ -42,72 +42,146 @@
       </div>
     </header>
 
-    <main class="container main-content">
-      <!-- Selector de Proyecto / Video -->
-      <section class="project-bar card" aria-label="Proyecto de video activo">
-        <div class="project-bar-main">
-          <div class="project-info">
-            <span class="step-label">Video Activo</span>
-            <div class="project-controls">
-              <select id="project-select" aria-label="Seleccionar proyecto de video"></select>
-              <button type="button" class="btn btn-secondary btn-sm" id="btn-new-project">
-                + Nuevo Video
+    <div class="app-shell">
+      <aside class="side-menu" aria-label="Navegación principal">
+        <div class="side-menu-group">
+          <span class="side-menu-label">Workspace</span>
+          <button
+            type="button"
+            class="side-nav-item is-active"
+            data-main-nav="studio"
+          >
+            <span class="side-nav-icon">🎬</span>
+            <span>Mega Studio</span>
+          </button>
+          <button
+            type="button"
+            class="side-nav-item"
+            data-main-nav="global-config"
+          >
+            <span class="side-nav-icon">⚙️</span>
+            <span>Config. Global</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="workspace-main main-content">
+        <div id="view-studio">
+          <!-- Selector de Proyecto / Video -->
+          <section class="project-bar card" aria-label="Proyecto de video activo">
+            <div class="project-bar-main">
+              <div class="project-info">
+                <span class="step-label">Video Activo</span>
+                <div class="project-controls">
+                  <select id="project-select" aria-label="Seleccionar proyecto de video"></select>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-new-project">
+                    + Nuevo Video
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm danger-text" id="btn-delete-project">
+                    Eliminar
+                  </button>
+                </div>
+              </div>
+              <div class="project-path-wrap">
+                <span class="meta-text">Carpeta aislada:</span>
+                <code class="file-path" id="active-project-path">projects/proyecto-inicial/</code>
+              </div>
+            </div>
+
+            <div class="confirm-delete-bar hidden" id="delete-project-confirm" role="alert">
+              <span id="delete-project-message">
+                ¿Eliminar permanentemente este proyecto y todos sus archivos?
+              </span>
+              <div class="editor-actions">
+                <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-project">
+                  Sí, eliminar
+                </button>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-delete-project">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+
+            <form class="new-project-form hidden" id="new-project-form">
+              <input
+                id="new-project-name"
+                type="text"
+                placeholder="Tema o etiqueta del nuevo video (ej. Por qué el café da sueño)"
+                required
+              />
+              <button type="submit" class="btn btn-primary btn-sm">Crear carpeta</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-project">
+                Cancelar
               </button>
-              <button type="button" class="btn btn-ghost btn-sm danger-text" id="btn-delete-project">
-                Eliminar
+            </form>
+
+            <div class="studio-subtabs" role="tablist" aria-label="Vistas del proyecto activo">
+              <button
+                type="button"
+                class="studio-subtab is-active"
+                role="tab"
+                data-studio-subtab="panel"
+              >
+                Panel
+              </button>
+              <button
+                type="button"
+                class="studio-subtab"
+                role="tab"
+                data-studio-subtab="project-config"
+              >
+                Config. Proyecto
               </button>
             </div>
-          </div>
-          <div class="project-path-wrap">
-            <span class="meta-text">Carpeta aislada:</span>
-            <code class="file-path" id="active-project-path">projects/proyecto-inicial/</code>
-          </div>
-        </div>
+          </section>
 
-        <div class="confirm-delete-bar hidden" id="delete-project-confirm" role="alert">
-          <span id="delete-project-message">
-            ¿Eliminar permanentemente este proyecto y todos sus archivos?
-          </span>
-          <div class="editor-actions">
-            <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-delete-project">
-              Sí, eliminar
-            </button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-delete-project">
-              Cancelar
-            </button>
-          </div>
-        </div>
+          <div id="subview-panel">
+            <!-- Paso 1: Archivos de entrada principales -->
+            <section class="section-block" aria-labelledby="heading-inputs">
+              <div class="section-header">
+                <div>
+                  <span class="step-label">Paso 1</span>
+                  <h2 id="heading-inputs">Archivos de Entrada</h2>
+                  <p class="section-desc">
+                    Carga el guion, la locución y la hoja de personaje. Cuando apliques el bloque 4 en 1,
+                    las tarjetas completadas se compactarán en un resumen.
+                  </p>
+                </div>
+                <div class="readiness-pill" id="readiness-summary">Verificando archivos...</div>
+              </div>
 
-        <form class="new-project-form hidden" id="new-project-form">
-          <input
-            id="new-project-name"
-            type="text"
-            placeholder="Tema o etiqueta del nuevo video (ej. Por qué el café da sueño)"
-            required
-          />
-          <button type="submit" class="btn btn-primary btn-sm">Crear carpeta</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-cancel-project">
-            Cancelar
-          </button>
-        </form>
-      </section>
+              <!-- Resumen compacto cuando el 4 en 1 está aplicado -->
+              <article class="card inputs-summary-card hidden" id="inputs-summary-card">
+                <div class="inputs-summary-head">
+                  <div>
+                    <h3>Resumen del Proyecto</h3>
+                    <p class="meta-text" id="inputs-summary-subtitle">
+                      Bloque 4 en 1 aplicado y guardado.
+                    </p>
+                  </div>
+                  <div class="editor-actions">
+                    <button type="button" class="btn btn-ghost btn-xs" id="btn-toggle-4in1-cards">
+                      Mostrar importador 4 en 1
+                    </button>
+                    <button type="button" class="btn btn-secondary btn-xs" id="btn-goto-project-config">
+                      Config. Proyecto
+                    </button>
+                  </div>
+                </div>
+                <div class="summary-rows">
+                  <div class="summary-row">
+                    <span class="summary-row-label">Aplicado:</span>
+                    <div class="summary-chips" id="summary-applied-chips"></div>
+                  </div>
+                  <div class="summary-row">
+                    <span class="summary-row-label">Pendiente / Opcional:</span>
+                    <div class="summary-chips" id="summary-pending-chips"></div>
+                  </div>
+                </div>
+              </article>
 
-      <!-- Paso 1: Archivos de entrada principales -->
-      <section class="section-block" aria-labelledby="heading-inputs">
-        <div class="section-header">
-          <div>
-            <span class="step-label">Paso 1</span>
-            <h2 id="heading-inputs">Archivos de Entrada</h2>
-            <p class="section-desc">
-              Carga el guion, la locución y la hoja de personaje. Puedes arrastrar los archivos o
-              escribir el guion directamente.
-            </p>
-          </div>
-          <div class="readiness-pill" id="readiness-summary">Verificando archivos...</div>
-        </div>
-
-        <!-- Generador de Prompt para Guion (Sin API) -->
-        <article class="card generator-card" id="card-generator">
+              <!-- Generador de Prompt para Guion (Sin API) -->
+              <article class="card generator-card" id="card-generator">
           <div class="card-head">
             <div>
               <div class="card-title-row">
@@ -586,7 +660,51 @@
           </div>
         </div>
       </section>
-    </main>
+          </div><!-- /#subview-panel -->
+
+          <!-- Config. Proyecto activo -->
+          <div id="subview-project-config" class="hidden">
+            <section class="section-block">
+              <div class="section-header">
+                <div>
+                  <span class="step-label">Proyecto Activo</span>
+                  <h2>Configuración Modular del Proyecto</h2>
+                  <p class="section-desc">
+                    Revisa las secciones aplicadas en este video, limpia una sección específica o ajusta
+                    su formato solo para este proyecto (si no lo editas, hereda de Config. Global).
+                  </p>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-reset-all-project-formats">
+                  Usar todo de Global
+                </button>
+              </div>
+              <div class="config-modules-list" id="project-config-list"></div>
+            </section>
+          </div>
+        </div><!-- /#view-studio -->
+
+        <!-- Config. Global -->
+        <div id="view-global-config" class="hidden">
+          <section class="section-block">
+            <div class="section-header">
+              <div>
+                <span class="step-label">Global</span>
+                <h2>Configuración Global de Formatos</h2>
+                <p class="section-desc">
+                  Define la plantilla base de cada módulo. Cuando modifiques cualquier módulo aquí
+                  (Guion Limpio, ElevenLabs, Remotion o Storyboard), el Prompt Maestro 4 en 1 se
+                  actualizará automáticamente.
+                </p>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm danger-text" id="btn-reset-all-global-formats">
+                Restaurar todo por defecto
+              </button>
+            </div>
+            <div class="config-modules-list" id="global-config-list"></div>
+          </section>
+        </div>
+      </main>
+    </div><!-- /.app-shell -->
 
     <div class="toast-region" id="toast-region" aria-live="polite"></div>
 
