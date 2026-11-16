@@ -357,7 +357,7 @@ async function clickGenerateButton(page: Page): Promise<boolean> {
       (await btn.isVisible().catch(() => false)) &&
       (await btn.isEnabled().catch(() => false))
     ) {
-      await btn.click();
+      await btn.click({ force: true });
       return true;
     }
   }
@@ -460,14 +460,15 @@ async function generateSingleFlowScene(
       }
     }
 
-    await selectVerticalAspectRatio(page);
-
     const beforeSrcs = new Set(await collectLargeImageSrcs(page));
     const fullPrompt = buildFullFlowPrompt(scene);
 
-    await input.click();
+    await input.click({ force: true });
     await input.fill(fullPrompt);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(300);
+
+    await selectVerticalAspectRatio(page);
+    await page.waitForTimeout(300);
 
     const clicked = await clickGenerateButton(page);
     if (!clicked) {
