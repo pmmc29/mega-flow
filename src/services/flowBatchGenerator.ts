@@ -412,10 +412,13 @@ async function attachExistingProjectIngredient(
   const addButtons = [
     'button[aria-label*="Añadir ingredientes" i]',
     'button[aria-label*="Add ingredients" i]',
-    'button[aria-label*="ingredient" i]',
   ];
 
   for (const sel of addButtons) {
+    if (await hasAttachedIngredientInPrompt(page)) {
+      return true;
+    }
+
     const btn = page.locator(sel).first();
     if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
 
@@ -443,23 +446,29 @@ async function attachExistingProjectIngredient(
     if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
       await refEntry.click({ force: true }).catch(() => {});
       entryClicked = true;
-      await page.waitForTimeout(300);
+      await page.waitForTimeout(350);
     } else {
       const firstModalImg = page.locator('.cdk-overlay-container img, [role="dialog"] img').first();
       if ((await firstModalImg.count()) > 0 && (await firstModalImg.isVisible().catch(() => false))) {
         await firstModalImg.click({ force: true }).catch(() => {});
         entryClicked = true;
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(350);
       }
+    }
+
+    // En Flow, hacer clic en el elemento de Subidas puede adjuntarlo y cerrar el modal automáticamente
+    if (await hasAttachedIngredientInPrompt(page)) {
+      await closeIngredientModalIfOpen(page);
+      return true;
     }
 
     const added = await clickAddToPromptIfVisible(page);
     if (added) {
       await page.waitForTimeout(600);
-      await closeIngredientModalIfOpen(page);
-      if (await hasAttachedIngredientInPrompt(page)) {
-        return true;
-      }
+    }
+    await closeIngredientModalIfOpen(page);
+    if (await hasAttachedIngredientInPrompt(page)) {
+      return true;
     }
 
     const diag = await page.evaluate(() => {
@@ -489,7 +498,7 @@ async function attachExistingProjectIngredient(
     );
 
     // Si aún no había archivo en el modal, subirlo aquí mismo y luego pulsar "Añadir a petición"
-    if (await uploadViaOpenIngredientModal(page, characterRefPath)) {
+    if (!entryClicked && (await uploadViaOpenIngredientModal(page, characterRefPath))) {
       await clickAddToPromptIfVisible(page);
       await page.waitForTimeout(600);
       await closeIngredientModalIfOpen(page);
@@ -501,7 +510,7 @@ async function attachExistingProjectIngredient(
     await closeIngredientModalIfOpen(page);
   }
 
-  return false;
+  return await hasAttachedIngredientInPrompt(page);
 }
 
 async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
