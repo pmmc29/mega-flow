@@ -219,28 +219,57 @@ export async function startAceStepService(
   return { started: true, alreadyRunning: false, cmd, cwd };
 }
 
-export function stopAceStepService(onLog?: (line: string) => void): { stopped: boolean } {
+export async function stopAceStepService(
+  onLog?: (line: string) => void,
+): Promise<{ stopped: boolean }> {
   const proc = aceStepProc;
   aceStepStarting = false;
   if (!proc) {
     return { stopped: false };
   }
 
-  aceStepProc = null;
-  try {
-    if (proc.pid) {
-      process.kill(-proc.pid, "SIGTERM");
-    } else {
-      proc.kill("SIGTERM");
-    }
-  } catch {
-    try {
-      proc.kill("SIGTERM");
-    } catch {
-      // ignore if already exited
-    }
-  }
   onLog?.("[ACE-Step] Deteniendo servicio...");
+  aceStepProc = null;
+
+  const killGroup = (signal: NodeJS.Signals) => {
+    try {
+      if (proc.pid) {
+        process.kill(-proc.pid, signal);
+      } else {
+        proc.kill(signal);
+      }
+    } catch {
+      try {
+        proc.kill(signal);
+      } catch {
+        // ignore if already exited
+      }
+    }
+  };
+
+  const closedPromise = new Promise<void>((resolve) => {
+    if (proc.exitCode !== null || proc.killed) {
+      resolve();
+      return;
+    }
+    proc.once("close", () => resolve());
+    setTimeout(() => {
+      killGroup("SIGKILL");
+    }, 1800);
+    setTimeout(() => resolve(), 2600);
+  });
+
+  killGroup("SIGTERM");
+  await closedPromise;
+
+  // Esperar brevemente a que el puerto deje de responder /health
+  const portDeadline = Date.now() + 1200;
+  while (Date.now() < portDeadline) {
+    const health = await checkAceStepHealth();
+    if (!health.available) break;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
   return { stopped: true };
 }
 

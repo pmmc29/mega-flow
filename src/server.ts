@@ -583,8 +583,8 @@ app.post("/api/acestep/start", async (_req, res) => {
   }
 });
 
-app.post("/api/acestep/stop", (_req, res) => {
-  const result = stopAceStepService((line) => {
+app.post("/api/acestep/stop", async (_req, res) => {
+  const result = await stopAceStepService((line) => {
     appendLog(line);
   });
   res.json({ ok: true, ...result });

@@ -1103,6 +1103,7 @@ function setupMusicPrompt() {
     aceToggleBtn.addEventListener("click", async () => {
       const isManaged = Boolean(latestStatus?.env?.aceStep?.managed);
       aceToggleBtn.disabled = true;
+      aceToggleBtn.textContent = isManaged ? "Deteniendo..." : "Iniciando...";
       try {
         const endpoint = isManaged ? "/api/acestep/stop" : "/api/acestep/start";
         const res = await fetch(endpoint, { method: "POST" });
@@ -1120,6 +1121,11 @@ function setupMusicPrompt() {
         showToast(err instanceof Error ? err.message : "Error de red con ACE-Step", true);
       } finally {
         await fetchStatus();
+        if (isManaged && latestStatus?.env?.aceStep?.available) {
+          setTimeout(() => {
+            void fetchStatus();
+          }, 800);
+        }
       }
     });
   }
