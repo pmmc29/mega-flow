@@ -84,8 +84,14 @@ function resolveAceStepLaunchConfig(projectRoot: string): { cmd: string; cwd: st
     return { cmd, cwd: envDir };
   }
 
+  const defaultRepoDir = path.join(projectRoot, "ACE-Step-1.5");
+  if (fs.existsSync(defaultRepoDir)) {
+    return { cmd, cwd: defaultRepoDir };
+  }
+
   const folderNames = ["ACE-Step-1.5", "ACE-Step", "ace-step-1.5", "ace-step", "acestep"];
   const parentBases = [
+    projectRoot,
     path.dirname(projectRoot),
     os.homedir(),
     path.join(os.homedir(), "Projects"),
@@ -111,7 +117,7 @@ function resolveAceStepLaunchConfig(projectRoot: string): { cmd: string; cwd: st
     }
   }
 
-  return { cmd, cwd: projectRoot };
+  return { cmd, cwd: defaultRepoDir };
 }
 
 function emitBufferedLines(
