@@ -188,7 +188,7 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
 
       const closeButtons = Array.from(
         root.querySelectorAll(
-          'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button[aria-label*="Clear" i]',
+          'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button[aria-label*="Clear" i], button[aria-label*="Cerrar" i]',
         ),
       ).filter((btn) => {
         const rect = btn.getBoundingClientRect();
@@ -205,9 +205,13 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
       });
       for (const img of chipImgs) {
         const chip = img.closest("div, span, li");
-        const btn = chip?.querySelector("button");
-        if (btn) {
-          btn.click();
+        const buttons = Array.from(chip?.querySelectorAll("button") ?? []);
+        const closeBtn = buttons.find((b) => {
+          const label = `${b.getAttribute("aria-label") || ""} ${b.textContent || ""}`.toLowerCase();
+          return /close|cancel|clear|remove|delete|quitar|eliminar|cerrar|×|✕/.test(label);
+        });
+        if (closeBtn) {
+          closeBtn.click();
           return true;
         }
       }
@@ -562,6 +566,56 @@ interface CandidateImage {
   src: string;
   isVertical: boolean;
   cardText: string;
+  taggedSceneId: number | null;
+}
+
+const FEED_CARD_SELECTOR =
+  "article, [role='listitem'], [class*='card' i], [class*='tile' i], [class*='item' i], [class*='generation' i], [data-testid*='generation' i]";
+
+async function markExistingFeedCards(page: Page): Promise<void> {
+  await page.evaluate((sel) => {
+    const cards = Array.from(document.querySelectorAll(sel));
+    for (const card of cards) {
+      if (card.closest('[role="textbox"], [class*="prompt" i], [class*="composer" i], .cdk-overlay-container')) {
+        continue;
+      }
+      const rect = card.getBoundingClientRect();
+      if (rect.width < 120 || rect.height < 120) continue;
+      if (!card.hasAttribute("data-mega-scene-id")) {
+        card.setAttribute("data-mega-seen", "1");
+      }
+    }
+  }, FEED_CARD_SELECTOR);
+}
+
+async function tagNewlyCreatedFeedCard(page: Page, sceneId: number): Promise<boolean> {
+  const deadline = Date.now() + 1400;
+  while (Date.now() < deadline) {
+    const tagged = await page.evaluate(
+      ({ sel, id }) => {
+        const cards = Array.from(document.querySelectorAll(sel));
+        for (const card of cards) {
+          if (
+            card.closest('[role="textbox"], [class*="prompt" i], [class*="composer" i], .cdk-overlay-container')
+          ) {
+            continue;
+          }
+          if (card.hasAttribute("data-mega-seen") || card.hasAttribute("data-mega-scene-id")) {
+            continue;
+          }
+          const rect = card.getBoundingClientRect();
+          if (rect.width < 120 || rect.height < 120) continue;
+          card.setAttribute("data-mega-scene-id", String(id));
+          return true;
+        }
+        return false;
+      },
+      { sel: FEED_CARD_SELECTOR, id: sceneId },
+    );
+    if (tagged) return true;
+    await page.waitForTimeout(180);
+  }
+  return false;
 }
 
 async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
@@ -569,7 +623,7 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
     const imgs = Array.from(document.querySelectorAll("img"));
     return imgs
       .filter((img) => {
-        if (img.closest('[role="textbox"], [class*="ingredient" i], [class*="prompt" i]')) {
+        if (img.closest('[role="textbox"], [class*="ingredient" i], [class*="prompt" i], .cdk-overlay-container')) {
           return false;
         }
         const w = img.naturalWidth || img.width || 0;
@@ -579,12 +633,31 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
       .map((img) => {
         const w = img.naturalWidth || img.width || 0;
         const h = img.naturalHeight || img.height || 0;
-        const card = img.closest("article, [role='listitem'], [class*='card' i], [class*='tile' i], [class*='item' i]") || img.parentElement;
-        const cardText = `${img.getAttribute("alt") || ""} ${card?.textContent || ""}`
+        const taggedEl = img.closest("[data-mega-scene-id]");
+        const taggedRaw = Number(taggedEl?.getAttribute("data-mega-scene-id") || 0);
+        const taggedSceneId = Number.isInteger(taggedRaw) && taggedRaw > 0 ? taggedRaw : null;
+
+        const textParts: string[] = [
+          img.getAttribute("alt") || "",
+          img.getAttribute("title") || "",
+          img.getAttribute("aria-label") || "",
+        ];
+        let node: Element | null = img.parentElement;
+        for (let depth = 0; depth < 4 && node && node !== document.body; depth++) {
+          textParts.push(
+            node.getAttribute("aria-label") || "",
+            node.getAttribute("title") || "",
+            node.textContent || "",
+          );
+          node = node.parentElement;
+        }
+
+        const cardText = textParts
+          .join(" ")
           .trim()
           .replace(/\s+/g, " ")
-          .slice(0, 300);
-        return { src: img.src, isVertical: h > w, cardText };
+          .slice(0, 500);
+        return { src: img.src, isVertical: h > w, cardText, taggedSceneId };
       });
   });
 }
@@ -646,11 +719,17 @@ function matchCandidateToInFlight(
 ): InFlightScene | null {
   if (inFlight.length === 0) return null;
   if (requireVertical && !candidate.isVertical) {
-    // Permitir si todas las escenas en vuelo llevan > 25s (por si Flow reporta dimensiones antes de escalar)
     const oldestAge = Date.now() - inFlight[0].startedAt;
     if (oldestAge < 25_000) return null;
   }
 
+  // 1. Coincidencia exacta por tarjeta etiquetada en el DOM al pulsar Generar
+  if (candidate.taggedSceneId !== null) {
+    const taggedMatch = inFlight.find((item) => item.scene.id === candidate.taggedSceneId);
+    if (taggedMatch) return taggedMatch;
+  }
+
+  // 2. Coincidencia por texto del prompt en el árbol DOM de la tarjeta
   const normCard = normalizeForMatch(candidate.cardText);
   if (normCard.length > 0) {
     let bestItem: InFlightScene | null = null;
@@ -658,7 +737,7 @@ function matchCandidateToInFlight(
 
     for (const item of inFlight) {
       let score = 0;
-      if (item.snippet.length >= 16 && normCard.includes(item.snippet)) {
+      if (item.snippet.length >= 14 && normCard.includes(item.snippet)) {
         score += 10;
       }
       for (const kw of item.keywords) {
@@ -675,7 +754,15 @@ function matchCandidateToInFlight(
     }
   }
 
-  return inFlight[0];
+  // 3. Si solo hay 1 en vuelo, es esa; si hay varias sin etiqueta, esperar antes de adivinar
+  if (inFlight.length === 1) {
+    return inFlight[0];
+  }
+  const oldestAge = Date.now() - inFlight[0].startedAt;
+  if (oldestAge > 45_000) {
+    return inFlight[0];
+  }
+  return null;
 }
 
 export interface FlowBatchOptions {
@@ -801,16 +888,6 @@ export async function generateFlowBatchScenes(
           for (let prepAttempt = 1; prepAttempt <= 5; prepAttempt++) {
             await closeIngredientModalIfOpen(page);
 
-            if (needsCharacter) {
-              if (!(await hasAttachedIngredientInPrompt(page))) {
-                await attachExistingProjectIngredient(page, options.characterRefPath);
-                await page.waitForTimeout(300);
-              }
-            } else if (await hasAttachedIngredientInPrompt(page)) {
-              await clearAttachedIngredients(page);
-              await page.waitForTimeout(250);
-            }
-
             const input = await findPromptInput(page);
             if (!input) {
               await page.waitForTimeout(400);
@@ -825,6 +902,16 @@ export async function generateFlowBatchScenes(
             if (!promptNeedle || !currentVal.includes(promptNeedle)) {
               await input.click({ force: true });
               await input.fill(fullPrompt);
+              await page.waitForTimeout(250);
+            }
+
+            if (needsCharacter) {
+              if (!(await hasAttachedIngredientInPrompt(page))) {
+                await attachExistingProjectIngredient(page, options.characterRefPath);
+                await page.waitForTimeout(300);
+              }
+            } else if (await hasAttachedIngredientInPrompt(page)) {
+              await clearAttachedIngredients(page);
               await page.waitForTimeout(250);
             }
 
@@ -855,10 +942,12 @@ export async function generateFlowBatchScenes(
             );
           }
 
+          await markExistingFeedCards(page);
           const clicked = await clickGenerateButton(page);
           if (!clicked) {
             throw new Error("No se encontró el botón de generar en Google Flow.");
           }
+          await tagNewlyCreatedFeedCard(page, scene.id);
 
           const normPrompt = normalizeForMatch(scene.image_prompt);
           const keywords = Array.from(
