@@ -395,19 +395,27 @@ async function attachExistingProjectIngredient(
     await btn.click({ force: true }).catch(() => {});
     await page.waitForTimeout(550);
 
-    // Si "Añadir a petición" ya está visible (character_ref ya preseleccionado), pulsarlo directo; si no, seleccionar character_ref primero
-    let added = await clickAddToPromptIfVisible(page);
-    if (!added) {
-      const refEntry = page
-        .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
-        .first();
-      if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
-        await refEntry.click({ force: true }).catch(() => {});
-        await page.waitForTimeout(250);
-      }
-      added = await clickAddToPromptIfVisible(page);
+    // Cambiar a la pestaña "Subidas" / "Uploads" DENTRO del popup modal (nunca en la barra lateral principal)
+    const modalUploadsTab = page
+      .locator(
+        '.cdk-overlay-container button:has-text("Subidas"), .cdk-overlay-container [role="tab"]:has-text("Subidas"), .cdk-overlay-container :text-is("Subidas"), [role="dialog"] button:has-text("Subidas"), [role="dialog"] :text-is("Subidas"), .cdk-overlay-container button:has-text("Uploads"), .cdk-overlay-container :text-is("Uploads"), [role="dialog"] :text-is("Uploads")',
+      )
+      .first();
+    if ((await modalUploadsTab.count()) > 0 && (await modalUploadsTab.isVisible().catch(() => false))) {
+      await modalUploadsTab.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(350);
     }
 
+    // Seleccionar character_ref dentro del popup modal
+    const refEntry = page
+      .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
+      .first();
+    if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
+      await refEntry.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(250);
+    }
+
+    const added = await clickAddToPromptIfVisible(page);
     if (added) {
       await page.waitForTimeout(450);
       await closeIngredientModalIfOpen(page);
