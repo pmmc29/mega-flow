@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
@@ -389,44 +390,17 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
   });
 }
 
-async function saveSceneFromFlowPage(
-  page: Page,
-  beforeSrcs: Set<string>,
-  destPath: string,
-): Promise<void> {
-  const deadline = Date.now() + 120_000;
-  let newSrc = "";
+function sha256(buf: Buffer): string {
+  return crypto.createHash("sha256").update(buf).digest("hex");
+}
 
-  while (Date.now() < deadline) {
-    const candidates = await collectLargeImageSrcs(page);
-    const verticalNew = candidates.find((c) => !beforeSrcs.has(c.src) && c.isVertical);
-    const anyNew = candidates.find((c) => !beforeSrcs.has(c.src));
-    if (verticalNew) {
-      newSrc = verticalNew.src;
-      break;
-    }
-    if (anyNew && Date.now() > deadline - 95_000) {
-      newSrc = anyNew.src;
-      break;
-    }
-    await page.waitForTimeout(1500);
+async function downloadCandidateBuffer(page: Page, src: string): Promise<Buffer> {
+  if (src.startsWith("data:image/")) {
+    const base64 = src.split(",")[1] || "";
+    return Buffer.from(base64, "base64");
   }
 
-  if (!newSrc) {
-    throw new Error(
-      "Tiempo de espera agotado esperando la imagen generada en Google Flow (120s).",
-    );
-  }
-
-  await fsp.mkdir(path.dirname(destPath), { recursive: true });
-
-  if (newSrc.startsWith("data:image/")) {
-    const base64 = newSrc.split(",")[1] || "";
-    await fsp.writeFile(destPath, Buffer.from(base64, "base64"));
-    return;
-  }
-
-  if (newSrc.startsWith("blob:")) {
+  if (src.startsWith("blob:")) {
     const base64 = await page.evaluate(async (blobUrl) => {
       const res = await fetch(blobUrl);
       const blob = await res.blob();
@@ -436,18 +410,54 @@ async function saveSceneFromFlowPage(
         reader.onerror = () => reject(new Error("No se pudo leer el blob de imagen"));
         reader.readAsDataURL(blob);
       });
-    }, newSrc);
+    }, src);
     const dataPart = base64.split(",")[1] || "";
-    await fsp.writeFile(destPath, Buffer.from(dataPart, "base64"));
-    return;
+    return Buffer.from(dataPart, "base64");
   }
 
-  const response = await page.context().request.get(newSrc);
+  const response = await page.context().request.get(src);
   if (!response.ok()) {
     throw new Error(`No se pudo descargar la imagen generada (${response.status()}).`);
   }
-  const buffer = await response.body();
-  await fsp.writeFile(destPath, buffer);
+  return response.body();
+}
+
+async function saveSceneFromFlowPage(
+  page: Page,
+  beforeSrcs: Set<string>,
+  destPath: string,
+  options: { requireVertical: boolean; characterRefHash: string | null },
+): Promise<void> {
+  const deadline = Date.now() + 120_000;
+  const rejectedSrcs = new Set<string>(beforeSrcs);
+
+  while (Date.now() < deadline) {
+    const candidates = await collectLargeImageSrcs(page);
+    const pool = options.requireVertical
+      ? candidates.filter((c) => !rejectedSrcs.has(c.src) && c.isVertical)
+      : candidates.filter((c) => !rejectedSrcs.has(c.src));
+
+    for (const candidate of pool) {
+      try {
+        const buffer = await downloadCandidateBuffer(page, candidate.src);
+        if (options.characterRefHash && sha256(buffer) === options.characterRefHash) {
+          rejectedSrcs.add(candidate.src);
+          continue;
+        }
+        await fsp.mkdir(path.dirname(destPath), { recursive: true });
+        await fsp.writeFile(destPath, buffer);
+        return;
+      } catch {
+        rejectedSrcs.add(candidate.src);
+      }
+    }
+
+    await page.waitForTimeout(1500);
+  }
+
+  throw new Error(
+    "Tiempo de espera agotado esperando la imagen generada en Google Flow (120s).",
+  );
 }
 
 async function generateSingleFlowScene(
@@ -468,11 +478,19 @@ async function generateSingleFlowScene(
       );
     }
 
-    if (scene.use_character) {
+    let characterRefHash: string | null = null;
+    if (scene.use_character && fs.existsSync(characterRefPath)) {
+      characterRefHash = sha256(await fsp.readFile(characterRefPath));
       const attached = await attachCharacterReference(page, characterRefPath);
       if (attached) {
-        // Esperar a que character_ref.png termine de subir y renderizarse en el DOM antes de tomar beforeSrcs
-        await page.waitForTimeout(2500);
+        // Esperar hasta 10s a que character_ref.png termine de subir y aparecer en la galería antes de generar
+        const uploadDeadline = Date.now() + 10_000;
+        while (Date.now() < uploadDeadline) {
+          const imgs = await collectLargeImageSrcs(page);
+          if (imgs.length > 0) break;
+          await page.waitForTimeout(700);
+        }
+        await page.waitForTimeout(800);
       } else {
         console.log(
           `[Flow] Escena ${scene.id}: no se pudo adjuntar character_ref.png automáticamente; enviando prompt con descripción.`,
@@ -486,10 +504,10 @@ async function generateSingleFlowScene(
     await input.fill(fullPrompt);
     await page.waitForTimeout(300);
 
-    await selectVerticalAspectRatio(page);
+    const verticalSelected = await selectVerticalAspectRatio(page);
     await page.waitForTimeout(400);
 
-    // Capturar las imágenes ya presentes (incluida cualquier miniatura de character_ref) justo antes de generar
+    // Capturar las imágenes ya presentes (incluido character_ref.png subido) justo antes de generar
     const beforeSrcs = new Set((await collectLargeImageSrcs(page)).map((c) => c.src));
 
     const clicked = await clickGenerateButton(page);
@@ -498,8 +516,11 @@ async function generateSingleFlowScene(
     }
 
     // Dar tiempo mínimo a que inicie la generación antes de buscar la imagen nueva
-    await page.waitForTimeout(4500);
-    await saveSceneFromFlowPage(page, beforeSrcs, destPath);
+    await page.waitForTimeout(5000);
+    await saveSceneFromFlowPage(page, beforeSrcs, destPath, {
+      requireVertical: verticalSelected,
+      characterRefHash,
+    });
   } finally {
     await page.close().catch(() => {});
   }
