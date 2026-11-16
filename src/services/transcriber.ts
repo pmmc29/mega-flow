@@ -148,16 +148,102 @@ export async function transcribeVoiceover(
   }
 
   const provider = process.env.TRANSCRIBER_PROVIDER === "openai" ? "openai" : "local";
-  const result =
+  const rawResult =
     provider === "openai"
       ? await transcribeWithOpenAI(audioPath)
       : await transcribeWithLocalWhisper(audioPath);
+
+  const result: TranscriptionResult = {
+    ...rawResult,
+    source: "whisper",
+  };
 
   await fsp.mkdir(path.dirname(outputPath), { recursive: true });
   await fsp.writeFile(outputPath, JSON.stringify(result, null, 2), "utf-8");
 
   console.log(
     `[Transcriber] Transcripción completada (${result.words.length} palabras, ${result.duration}s) -> ${outputPath}`,
+  );
+
+  return result;
+}
+
+export async function generateEstimatedTimestampsFromScript(
+  scriptPath: string = PATHS.script,
+  storyboardPath: string = PATHS.storyboard,
+  outputPath: string = PATHS.timestamps,
+  fallbackDurationSeconds?: number,
+): Promise<TranscriptionResult> {
+  const scriptText = fs.existsSync(scriptPath)
+    ? await fsp.readFile(scriptPath, "utf-8")
+    : "";
+  const tokens = scriptText.trim().split(/\s+/).filter(Boolean);
+
+  let totalDuration = 0;
+  if (fs.existsSync(storyboardPath)) {
+    try {
+      const sb = JSON.parse(await fsp.readFile(storyboardPath, "utf-8")) as {
+        scenes?: Array<{ end?: number }>;
+      };
+      const lastEnd = sb.scenes?.length ? sb.scenes[sb.scenes.length - 1]?.end : 0;
+      if (typeof lastEnd === "number" && Number.isFinite(lastEnd) && lastEnd > 0) {
+        totalDuration = lastEnd;
+      }
+    } catch {
+      // ignore invalid storyboard
+    }
+  }
+
+  if (totalDuration <= 0 && fallbackDurationSeconds && fallbackDurationSeconds > 0) {
+    totalDuration = fallbackDurationSeconds;
+  }
+
+  if (totalDuration <= 0) {
+    totalDuration = Math.max(5, Number((tokens.length / 2.5).toFixed(3)));
+  }
+
+  if (tokens.length === 0) {
+    const emptyResult: TranscriptionResult = {
+      duration: Number(totalDuration.toFixed(3)),
+      words: [],
+      source: "estimated",
+    };
+    await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+    await fsp.writeFile(outputPath, JSON.stringify(emptyResult, null, 2), "utf-8");
+    return emptyResult;
+  }
+
+  const weights = tokens.map((token) => {
+    const cleanLen = token.replace(/[^\p{L}\p{N}]/gu, "").length || 1;
+    const pause = /[.!?…]+$/.test(token) ? 3.2 : /[,;:]+$/.test(token) ? 1.6 : 0;
+    return Math.max(2, cleanLen) + pause;
+  });
+  const totalWeight = weights.reduce((acc, w) => acc + w, 0) || tokens.length;
+
+  const leadIn = totalDuration > 3 ? 0.15 : 0;
+  const tailOut = totalDuration > 3 ? 0.15 : 0;
+  const usableDuration = Math.max(0.5, totalDuration - leadIn - tailOut);
+
+  let cursor = leadIn;
+  const words: WordTimestamp[] = tokens.map((token, idx) => {
+    const slot = (weights[idx] / totalWeight) * usableDuration;
+    const start = Number(cursor.toFixed(3));
+    cursor += slot;
+    const end = Number(Math.max(start + 0.08, cursor).toFixed(3));
+    return { word: token, start, end };
+  });
+
+  const result: TranscriptionResult = {
+    duration: Number(totalDuration.toFixed(3)),
+    words,
+    source: "estimated",
+  };
+
+  await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+  await fsp.writeFile(outputPath, JSON.stringify(result, null, 2), "utf-8");
+
+  console.log(
+    `[Transcriber] Timestamps estándar del guion (${result.words.length} palabras, ${result.duration}s) -> ${outputPath}`,
   );
 
   return result;

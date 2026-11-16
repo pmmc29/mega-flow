@@ -464,18 +464,24 @@ async function fetchStatus() {
     }
 
     if (step === "render") {
-      btn.textContent = hasGemini ? "4. Renderizar Video" : "3. Renderizar Video";
+      const prefix = hasGemini ? "4." : "3.";
+      btn.textContent = hasAudio
+        ? `${prefix} Renderizar Video Final`
+        : `${prefix} Renderizar Vista Previa`;
     }
 
     if (step === "all") {
       btn.textContent = hasGemini
         ? "Ejecutar Pipeline Completo (1 → 4)"
-        : "Transcribir y Renderizar Video";
+        : hasAudio
+          ? "Transcribir y Renderizar Final"
+          : "Renderizar Vista Previa";
     }
 
     if (step === "transcribe" && !hasAudio) {
       btn.disabled = true;
-      btn.title = "Sube primero un archivo en Audio de Locución";
+      btn.title =
+        "Sube Audio de Locución para ajustar con Whisper (sin audio se usan timestamps estándar en la vista previa)";
     } else if (!hasGemini && (step === "render" || step === "all") && !allScenesReady) {
       btn.disabled = true;
       btn.title =

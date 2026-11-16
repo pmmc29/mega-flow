@@ -22,7 +22,10 @@ import {
   PATHS,
   STYLE_ANCHOR,
 } from "./config/styleConfig.js";
-import { transcribeVoiceover } from "./services/transcriber.js";
+import {
+  generateEstimatedTimestampsFromScript,
+  transcribeVoiceover,
+} from "./services/transcriber.js";
 import { generateStoryboard, syncStoryboardToDuration } from "./services/sceneDirector.js";
 import { generateSceneImages } from "./services/imageGenerator.js";
 import { renderFinalVideo } from "./services/videoRenderer.js";
@@ -659,7 +662,10 @@ app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
     await fsp.mkdir(path.dirname(targetPath), { recursive: true });
     await fsp.writeFile(targetPath, req.file.buffer);
     if (assetType === "voiceover" || assetType === "bgMusic") {
-      const { meta } = await getActiveProject();
+      const { meta, paths } = await getActiveProject();
+      if (assetType === "voiceover" && fs.existsSync(paths.timestamps)) {
+        await fsp.unlink(paths.timestamps);
+      }
       await touchProject(meta.slug);
     }
     res.json({ ok: true, size: req.file.size });
@@ -692,6 +698,9 @@ app.delete("/api/upload/:assetType", async (req, res) => {
 
     if (fs.existsSync(targetPath)) {
       await fsp.unlink(targetPath);
+    }
+    if (assetType === "voiceover" && fs.existsSync(paths.timestamps)) {
+      await fsp.unlink(paths.timestamps);
     }
     res.json({ ok: true });
   } catch (err) {
@@ -736,15 +745,33 @@ app.post("/api/run/:step", async (req, res) => {
     try {
       appendLog(`[${meta.name}] Iniciando ejecución: ${step}`);
       if (step === "transcribe") {
-        const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
-        await syncStoryboardToDuration(paths.storyboard, ts.duration);
+        if (fs.existsSync(paths.voiceover)) {
+          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+          await syncStoryboardToDuration(paths.storyboard, ts.duration);
+        } else {
+          appendLog(
+            "[Pipeline] Sin audio ElevenLabs: generando timestamps estándar del guion para vista previa.",
+          );
+          await generateEstimatedTimestampsFromScript(
+            paths.script,
+            paths.storyboard,
+            paths.timestamps,
+            meta.durationSeconds,
+          );
+        }
       } else if (step === "all") {
         if (fs.existsSync(paths.voiceover)) {
           const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
           await syncStoryboardToDuration(paths.storyboard, ts.duration);
         } else {
           appendLog(
-            "[Pipeline] Sin audio de locución en este proyecto; omitiendo transcripción y usando duración estimada del guion.",
+            "[Pipeline] Sin audio ElevenLabs: generando timestamps estándar del guion para vista previa.",
+          );
+          await generateEstimatedTimestampsFromScript(
+            paths.script,
+            paths.storyboard,
+            paths.timestamps,
+            meta.durationSeconds,
           );
         }
       }
@@ -779,6 +806,28 @@ app.post("/api/run/:step", async (req, res) => {
           }
           appendLog(
             `[Google Flow] ${sb.scenes.length} escenas verificadas en workspace/scenes/.`,
+          );
+        }
+      }
+      if (step === "render") {
+        if (fs.existsSync(paths.voiceover)) {
+          const existingTs = await readJsonSafe<TranscriptionResult>(paths.timestamps);
+          if (!existingTs || existingTs.source !== "whisper") {
+            appendLog(
+              "[Pipeline] Audio ElevenLabs detectado: ajustando timestamps con Whisper para renderizado final...",
+            );
+            const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps);
+            await syncStoryboardToDuration(paths.storyboard, ts.duration);
+          }
+        } else {
+          appendLog(
+            "[Pipeline] Sin audio ElevenLabs: usando timestamps estándar del guion para vista previa.",
+          );
+          await generateEstimatedTimestampsFromScript(
+            paths.script,
+            paths.storyboard,
+            paths.timestamps,
+            meta.durationSeconds,
           );
         }
       }

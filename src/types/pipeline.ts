@@ -7,6 +7,7 @@ export interface WordTimestamp {
 export interface TranscriptionResult {
   duration: number;
   words: WordTimestamp[];
+  source?: "whisper" | "estimated";
 }
 
 export type CameraMotion = "zoom_in" | "zoom_out" | "pan_left" | "pan_right";
