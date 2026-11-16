@@ -282,6 +282,28 @@ async function clickSingleOutputIfVisible(page: Page): Promise<boolean> {
   return false;
 }
 
+async function closeSettingsPopover(page: Page, trigger: ReturnType<Page["locator"]>): Promise<void> {
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(200);
+
+  const backdrop = page.locator(".cdk-overlay-backdrop-showing").first();
+  if ((await backdrop.count()) > 0 && (await backdrop.isVisible().catch(() => false))) {
+    await backdrop.click({ position: { x: 20, y: 20 }, force: true }).catch(() => {});
+    await page.waitForTimeout(250);
+  }
+
+  const popoverMarker = page.locator('.credit-cost-label, button:has-text("4:3"), button:has-text("x4")').first();
+  if ((await popoverMarker.count()) > 0 && (await popoverMarker.isVisible().catch(() => false))) {
+    await trigger.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(250);
+  }
+
+  if ((await popoverMarker.count()) > 0 && (await popoverMarker.isVisible().catch(() => false))) {
+    await page.mouse.click(24, 200).catch(() => {});
+    await page.waitForTimeout(250);
+  }
+}
+
 async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
   if (await clickVerticalOptionIfVisible(page)) return true;
 
@@ -304,16 +326,13 @@ async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
 
     const verticalOk = await clickVerticalOptionIfVisible(page);
     await clickSingleOutputIfVisible(page);
+    await closeSettingsPopover(page, trigger);
 
     if (verticalOk) {
-      await page.keyboard.press("Escape").catch(() => {});
-      await page.waitForTimeout(200);
       return true;
     }
     const openLabels = await listVisibleButtonLabels(page);
     console.log(`[Flow] Popover abierto (${triggerSel}), botones visibles: ${openLabels.join(" | ")}`);
-    await page.keyboard.press("Escape").catch(() => {});
-    await page.waitForTimeout(200);
   }
 
   return false;
