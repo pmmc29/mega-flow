@@ -420,7 +420,7 @@ async function attachExistingProjectIngredient(
     if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
 
     await btn.click({ force: true }).catch(() => {});
-    await page.waitForTimeout(550);
+    await page.waitForTimeout(700);
 
     // Cambiar a la pestaña "Subidas" / "Uploads" DENTRO del popup modal (nunca en la barra lateral principal)
     const modalUploadsTab = page
@@ -428,33 +428,70 @@ async function attachExistingProjectIngredient(
         '.cdk-overlay-container button:has-text("Subidas"), .cdk-overlay-container [role="tab"]:has-text("Subidas"), .cdk-overlay-container :text-is("Subidas"), [role="dialog"] button:has-text("Subidas"), [role="dialog"] :text-is("Subidas"), .cdk-overlay-container button:has-text("Uploads"), .cdk-overlay-container :text-is("Uploads"), [role="dialog"] :text-is("Uploads")',
       )
       .first();
-    if ((await modalUploadsTab.count()) > 0 && (await modalUploadsTab.isVisible().catch(() => false))) {
+    const uploadsTabClicked =
+      (await modalUploadsTab.count()) > 0 && (await modalUploadsTab.isVisible().catch(() => false));
+    if (uploadsTabClicked) {
       await modalUploadsTab.click({ force: true }).catch(() => {});
-      await page.waitForTimeout(350);
+      await page.waitForTimeout(450);
     }
 
-    // Seleccionar character_ref dentro del popup modal
+    // Seleccionar character_ref dentro del popup modal (o el primer elemento con imagen si no muestra el nombre)
     const refEntry = page
       .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
       .first();
+    let entryClicked = false;
     if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
       await refEntry.click({ force: true }).catch(() => {});
-      await page.waitForTimeout(250);
+      entryClicked = true;
+      await page.waitForTimeout(300);
+    } else {
+      const firstModalImg = page.locator('.cdk-overlay-container img, [role="dialog"] img').first();
+      if ((await firstModalImg.count()) > 0 && (await firstModalImg.isVisible().catch(() => false))) {
+        await firstModalImg.click({ force: true }).catch(() => {});
+        entryClicked = true;
+        await page.waitForTimeout(300);
+      }
     }
 
     const added = await clickAddToPromptIfVisible(page);
     if (added) {
-      await page.waitForTimeout(450);
+      await page.waitForTimeout(600);
       await closeIngredientModalIfOpen(page);
       if (await hasAttachedIngredientInPrompt(page)) {
         return true;
       }
     }
 
+    const diag = await page.evaluate(() => {
+      const tb =
+        document.querySelector('[role="textbox"][contenteditable="true"]') ||
+        document.querySelector("textarea");
+      let box: Element | null = tb;
+      while (box && box.parentElement && box.parentElement !== document.body) {
+        if (box.querySelector('button[aria-label*="Iniciar generación" i]')) break;
+        box = box.parentElement;
+      }
+      const root = box?.parentElement && box.parentElement !== document.body ? box.parentElement : box;
+      const imgs = root
+        ? Array.from(root.querySelectorAll("img")).map((i) => {
+            const r = i.getBoundingClientRect();
+            return `${Math.round(r.width)}x${Math.round(r.height)}`;
+          })
+        : [];
+      return {
+        rootClass: root?.className || "",
+        imgs,
+        overlayOpen: Boolean(document.querySelector(".cdk-overlay-backdrop-showing")),
+      };
+    });
+    console.log(
+      `[Flow][Diag] uploadsTab=${uploadsTabClicked} entry=${entryClicked} added=${added} overlay=${diag.overlayOpen} imgs=[${diag.imgs.join(",")}]`,
+    );
+
     // Si aún no había archivo en el modal, subirlo aquí mismo y luego pulsar "Añadir a petición"
     if (await uploadViaOpenIngredientModal(page, characterRefPath)) {
       await clickAddToPromptIfVisible(page);
-      await page.waitForTimeout(450);
+      await page.waitForTimeout(600);
       await closeIngredientModalIfOpen(page);
       if (await hasAttachedIngredientInPrompt(page)) {
         return true;
