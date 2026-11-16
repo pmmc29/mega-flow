@@ -1015,42 +1015,45 @@ function setupMusicPrompt() {
   const genBtn = $("#btn-music-prompt");
   const copyBtn = $("#btn-copy-music-prompt");
   const area = $("#music-prompt-textarea");
-  if (!genBtn || !copyBtn || !area) return;
 
-  genBtn.addEventListener("click", async () => {
-    genBtn.disabled = true;
-    genBtn.textContent = "Armando...";
-    try {
-      const topic = $("#gen-topic")?.value.trim() || "";
-      const durationSeconds = Number($("#gen-duration")?.value) || 45;
-      const tone = $("#gen-tone")?.value || "curioso y dinámico";
+  if (genBtn && copyBtn && area) {
+    genBtn.addEventListener("click", async () => {
+      genBtn.disabled = true;
+      genBtn.textContent = "Armando...";
+      try {
+        const topic = $("#gen-topic")?.value.trim() || "";
+        const durationSeconds = Number($("#gen-duration")?.value) || 45;
+        const tone = $("#gen-tone")?.value || "curioso y dinámico";
 
-      const res = await fetch("/api/music/prompt", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, durationSeconds, tone }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        showToast(json.error || "Error al armar el prompt musical", true);
-        return;
+        const res = await fetch("/api/music/prompt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ topic, durationSeconds, tone }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          showToast(json.error || "Error al armar el prompt musical", true);
+          return;
+        }
+
+        area.value = json.prompt;
+        area.classList.remove("hidden");
+        copyBtn.classList.remove("hidden");
+        showToast("Prompt musical listo para Google Flow");
+      } finally {
+        genBtn.disabled = false;
+        genBtn.textContent = "Generar prompt";
       }
+    });
+  }
 
-      area.value = json.prompt;
-      area.classList.remove("hidden");
-      copyBtn.classList.remove("hidden");
-      showToast("Prompt musical listo para Google Flow");
-    } finally {
-      genBtn.disabled = false;
-      genBtn.textContent = "Generar prompt";
-    }
-  });
-
-  copyBtn.addEventListener("click", async () => {
-    if (!area.value.trim()) return;
-    await navigator.clipboard.writeText(area.value);
-    showToast("Prompt musical copiado al portapapeles");
-  });
+  if (copyBtn && area) {
+    copyBtn.addEventListener("click", async () => {
+      if (!area.value.trim()) return;
+      await navigator.clipboard.writeText(area.value);
+      showToast("Prompt musical copiado al portapapeles");
+    });
+  }
 
   const aceBtn = $("#btn-generate-acestep");
   if (aceBtn) {
