@@ -663,6 +663,7 @@ async function markExistingFeedCards(page: Page): Promise<void> {
       }
       const rect = card.getBoundingClientRect();
       if (rect.width < 120 || rect.height < 120) continue;
+      if (rect.height > window.innerHeight * 0.9 || rect.width > window.innerWidth * 0.85) continue;
       if (!card.hasAttribute("data-mega-scene-id")) {
         card.setAttribute("data-mega-seen", "1");
       }
@@ -670,12 +671,18 @@ async function markExistingFeedCards(page: Page): Promise<void> {
   }, FEED_CARD_SELECTOR);
 }
 
-async function tagNewlyCreatedFeedCard(page: Page, sceneId: number): Promise<boolean> {
-  const deadline = Date.now() + 1400;
+async function tagNewlyCreatedFeedCard(
+  page: Page,
+  sceneId: number,
+  promptSnippet: string,
+): Promise<boolean> {
+  const deadline = Date.now() + 1800;
   while (Date.now() < deadline) {
     const tagged = await page.evaluate(
-      ({ sel, id }) => {
+      ({ sel, id, snippet }) => {
         const cards = Array.from(document.querySelectorAll(sel));
+        const candidates: Array<{ el: Element; area: number; hasPrompt: boolean }> = [];
+
         for (const card of cards) {
           if (
             card.closest('[role="textbox"], [class*="prompt" i], [class*="composer" i], .cdk-overlay-container')
@@ -685,14 +692,49 @@ async function tagNewlyCreatedFeedCard(page: Page, sceneId: number): Promise<boo
           if (card.hasAttribute("data-mega-seen") || card.hasAttribute("data-mega-scene-id")) {
             continue;
           }
+          // Nunca etiquetar un contenedor que envuelve tarjetas previas o múltiples imágenes
+          if (card.querySelector("[data-mega-seen], [data-mega-scene-id]")) {
+            continue;
+          }
+          if (card.querySelectorAll("img").length > 2) {
+            continue;
+          }
+
+          const cls = `${card.className || ""} ${card.id || ""}`.toLowerCase();
+          if (
+            !card.matches("article, [role='listitem']") &&
+            /\b(list|grid|feed|gallery|container|wrapper|history|scroll)\b/.test(cls)
+          ) {
+            continue;
+          }
+
           const rect = card.getBoundingClientRect();
           if (rect.width < 120 || rect.height < 120) continue;
-          card.setAttribute("data-mega-scene-id", String(id));
-          return true;
+          if (rect.height > window.innerHeight * 0.88 || rect.width > window.innerWidth * 0.82) {
+            continue;
+          }
+
+          const normText = (card.textContent || "")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .replace(/[^\p{L}\p{N}\s]/gu, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+          const hasPrompt = snippet.length >= 12 && normText.includes(snippet);
+          candidates.push({ el: card, area: rect.width * rect.height, hasPrompt });
         }
-        return false;
+
+        if (candidates.length === 0) return false;
+        candidates.sort((a, b) => {
+          if (a.hasPrompt !== b.hasPrompt) return a.hasPrompt ? -1 : 1;
+          return a.area - b.area;
+        });
+
+        candidates[0].el.setAttribute("data-mega-scene-id", String(id));
+        return true;
       },
-      { sel: FEED_CARD_SELECTOR, id: sceneId },
+      { sel: FEED_CARD_SELECTOR, id: sceneId, snippet: promptSnippet },
     );
     if (tagged) return true;
     await page.waitForTimeout(180);
@@ -725,7 +767,16 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
           img.getAttribute("aria-label") || "",
         ];
         let node: Element | null = img.parentElement;
-        for (let depth = 0; depth < 4 && node && node !== document.body; depth++) {
+        for (let depth = 0; depth < 6 && node && node !== document.body; depth++) {
+          const largeImgsInside = Array.from(node.querySelectorAll("img")).filter((i) => {
+            const iw = i.naturalWidth || i.width || 0;
+            const ih = i.naturalHeight || i.height || 0;
+            return iw >= 200 && ih >= 200;
+          }).length;
+          const rect = node.getBoundingClientRect();
+          if (largeImgsInside > 1 || rect.height > window.innerHeight * 0.85) {
+            break;
+          }
           textParts.push(
             node.getAttribute("aria-label") || "",
             node.getAttribute("title") || "",
@@ -738,7 +789,7 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
           .join(" ")
           .trim()
           .replace(/\s+/g, " ")
-          .slice(0, 500);
+          .slice(0, 1500);
         return { src: img.src, isVertical: h > w, cardText, taggedSceneId };
       });
   });
@@ -786,19 +837,28 @@ function normalizeForMatch(text: string): string {
     .trim();
 }
 
+const MATCH_STOP_WORDS = new Set([
+  "with", "that", "from", "into", "this", "your", "have", "will", "they", "them",
+  "their", "what", "when", "where", "which", "about", "around", "scene", "image",
+  "style", "pixar", "character", "person", "background", "lighting", "camera",
+  "shot", "close", "medium", "wide", "frame", "vertical", "looking", "standing",
+  "para", "como", "esta", "este", "con", "una", "unos", "unas", "sobre", "entre",
+]);
+
 interface InFlightScene {
   scene: Scene;
   startedAt: number;
   attempts: number;
   keywords: string[];
   snippet: string;
+  midSnippet: string;
 }
 
 function matchCandidateToInFlight(
   candidate: CandidateImage,
   inFlight: InFlightScene[],
   requireVertical: boolean,
-): InFlightScene | null {
+): { item: InFlightScene; via: string; score: number } | null {
   if (inFlight.length === 0) return null;
   if (requireVertical && !candidate.isVertical) {
     const oldestAge = Date.now() - inFlight[0].startedAt;
@@ -808,7 +868,7 @@ function matchCandidateToInFlight(
   // 1. Coincidencia exacta por tarjeta etiquetada en el DOM al pulsar Generar
   if (candidate.taggedSceneId !== null) {
     const taggedMatch = inFlight.find((item) => item.scene.id === candidate.taggedSceneId);
-    if (taggedMatch) return taggedMatch;
+    if (taggedMatch) return { item: taggedMatch, via: "tagged", score: 100 };
   }
 
   // 2. Coincidencia por texto del prompt en el árbol DOM de la tarjeta
@@ -820,10 +880,23 @@ function matchCandidateToInFlight(
     for (const item of inFlight) {
       let score = 0;
       if (item.snippet.length >= 14 && normCard.includes(item.snippet)) {
+        score += 12;
+      }
+      if (item.midSnippet.length >= 14 && normCard.includes(item.midSnippet)) {
         score += 10;
       }
+
+      const otherKeywords = new Set<string>();
+      for (const other of inFlight) {
+        if (other !== item) {
+          for (const k of other.keywords) otherKeywords.add(k);
+        }
+      }
+
       for (const kw of item.keywords) {
-        if (normCard.includes(kw)) score += 1;
+        if (normCard.includes(kw)) {
+          score += otherKeywords.has(kw) ? 1 : 3;
+        }
       }
       if (score > bestScore) {
         bestScore = score;
@@ -831,18 +904,18 @@ function matchCandidateToInFlight(
       }
     }
 
-    if (bestItem && bestScore >= 2) {
-      return bestItem;
+    if (bestItem && bestScore >= 4) {
+      return { item: bestItem, via: "text", score: bestScore };
     }
   }
 
   // 3. Si solo hay 1 en vuelo, es esa; si hay varias sin etiqueta, esperar antes de adivinar
   if (inFlight.length === 1) {
-    return inFlight[0];
+    return { item: inFlight[0], via: "single", score: 1 };
   }
   const oldestAge = Date.now() - inFlight[0].startedAt;
-  if (oldestAge > 45_000) {
-    return inFlight[0];
+  if (oldestAge > 95_000) {
+    return { item: inFlight[0], via: "timeout", score: 0 };
   }
   return null;
 }
@@ -1036,19 +1109,27 @@ export async function generateFlowBatchScenes(
           if (!clicked) {
             throw new Error("No se encontró el botón de generar en Google Flow.");
           }
-          await tagNewlyCreatedFeedCard(page, scene.id);
-
           const normPrompt = normalizeForMatch(scene.image_prompt);
+          const snippet = normPrompt.slice(0, 28);
+          const midStart = Math.max(0, Math.floor(normPrompt.length / 2) - 12);
+          const midSnippet = normPrompt.slice(midStart, midStart + 24);
+          await tagNewlyCreatedFeedCard(page, scene.id, snippet);
+
           const keywords = Array.from(
-            new Set(normPrompt.split(" ").filter((w) => w.length >= 4)),
-          ).slice(0, 8);
+            new Set(
+              normPrompt
+                .split(" ")
+                .filter((w) => w.length >= 4 && !MATCH_STOP_WORDS.has(w)),
+            ),
+          ).slice(0, 12);
 
           inFlight.push({
             scene,
             startedAt: Date.now(),
             attempts: next.attempts + 1,
             keywords,
-            snippet: normPrompt.slice(0, 28),
+            snippet,
+            midSnippet,
           });
           console.log(
             `[Flow] Prompt enviado: Escena ${scene.id}/${storyboard.scenes.length} (en vuelo: ${inFlight.length}/${maxInFlight})`,
@@ -1085,8 +1166,9 @@ export async function generateFlowBatchScenes(
             continue;
           }
 
-          const matched = matchCandidateToInFlight(candidate, inFlight, verticalSelected);
-          if (!matched) continue;
+          const matchResult = matchCandidateToInFlight(candidate, inFlight, verticalSelected);
+          if (!matchResult) continue;
+          const { item: matched, via, score } = matchResult;
 
           knownSrcs.add(candidate.src);
           const filename = `scene_${String(matched.scene.id).padStart(3, "0")}.png`;
@@ -1099,7 +1181,7 @@ export async function generateFlowBatchScenes(
           generated += 1;
           processed += 1;
           console.log(
-            `[Flow] Escena ${matched.scene.id} guardada -> ${filename} (en vuelo: ${inFlight.length}/${maxInFlight})`,
+            `[Flow] Escena ${matched.scene.id} guardada -> ${filename} (match=${via}:${score}, en vuelo: ${inFlight.length}/${maxInFlight})`,
           );
           options.onProgress?.({
             completed: processed,
