@@ -172,11 +172,22 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
   // En la caja de prompt de Flow, los ingredientes adjuntos muestran un chip/miniatura con botón de cierre
   for (let pass = 0; pass < 4; pass++) {
     const removed = await page.evaluate(() => {
-      const promptBox =
-        document.querySelector('[role="textbox"][contenteditable="true"]')?.closest("form, [class*='prompt' i], [class*='composer' i], div") ||
-        document.body;
+      const textbox = document.querySelector('[role="textbox"][contenteditable="true"], textarea');
+      let promptBox: Element | null = textbox;
+      while (promptBox && promptBox.parentElement && promptBox.parentElement !== document.body) {
+        if (
+          promptBox.querySelector(
+            'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i], button[aria-label*="Activador de ajustes" i], button[aria-label*="Añadir ingredientes" i]',
+          )
+        ) {
+          break;
+        }
+        promptBox = promptBox.parentElement;
+      }
+      const root = promptBox || document.body;
+
       const closeButtons = Array.from(
-        promptBox.querySelectorAll(
+        root.querySelectorAll(
           'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button[aria-label*="Clear" i]',
         ),
       ).filter((btn) => {
@@ -188,10 +199,9 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
         return true;
       }
 
-      // Buscar chips con texto "close" o "cancel" junto a una miniatura img pequeña dentro del compositor
-      const chipImgs = Array.from(promptBox.querySelectorAll("img")).filter((img) => {
-        const w = img.naturalWidth || img.width || 0;
-        return w > 0 && w < 180;
+      const chipImgs = Array.from(root.querySelectorAll("img")).filter((img) => {
+        const rect = img.getBoundingClientRect();
+        return rect.width > 16 && rect.width < 180 && rect.height > 16;
       });
       for (const img of chipImgs) {
         const chip = img.closest("div, span, li");
@@ -210,8 +220,19 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
 
 async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    const promptBox =
-      document.querySelector('[role="textbox"][contenteditable="true"]')?.closest("form, [class*='prompt' i], [class*='composer' i], div");
+    const textbox = document.querySelector('[role="textbox"][contenteditable="true"], textarea');
+    if (!textbox) return false;
+    let promptBox: Element | null = textbox;
+    while (promptBox && promptBox.parentElement && promptBox.parentElement !== document.body) {
+      if (
+        promptBox.querySelector(
+          'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i], button[aria-label*="Activador de ajustes" i], button[aria-label*="Añadir ingredientes" i]',
+        )
+      ) {
+        break;
+      }
+      promptBox = promptBox.parentElement;
+    }
     if (!promptBox) return false;
     return Array.from(promptBox.querySelectorAll("img")).some((img) => {
       const rect = img.getBoundingClientRect();
@@ -770,21 +791,69 @@ export async function generateFlowBatchScenes(
         const scene = next.scene;
 
         try {
-          const input = await findPromptInput(page);
-          if (!input) {
-            throw new Error("No se encontró el campo de prompt en Google Flow.");
-          }
-
-          if (scene.use_character && fs.existsSync(options.characterRefPath)) {
-            await attachExistingProjectIngredient(page, options.characterRefPath);
-          } else {
-            await clearAttachedIngredients(page);
-          }
-
           const fullPrompt = buildFullFlowPrompt(scene);
-          await input.click({ force: true });
-          await input.fill(fullPrompt);
-          await page.waitForTimeout(250);
+          const needsCharacter = Boolean(
+            scene.use_character && fs.existsSync(options.characterRefPath),
+          );
+          const promptNeedle = normalizeForMatch(scene.image_prompt).slice(0, 20);
+
+          let readyToSend = false;
+          for (let prepAttempt = 1; prepAttempt <= 5; prepAttempt++) {
+            await closeIngredientModalIfOpen(page);
+
+            if (needsCharacter) {
+              if (!(await hasAttachedIngredientInPrompt(page))) {
+                await attachExistingProjectIngredient(page, options.characterRefPath);
+                await page.waitForTimeout(300);
+              }
+            } else if (await hasAttachedIngredientInPrompt(page)) {
+              await clearAttachedIngredients(page);
+              await page.waitForTimeout(250);
+            }
+
+            const input = await findPromptInput(page);
+            if (!input) {
+              await page.waitForTimeout(400);
+              continue;
+            }
+
+            const currentVal = normalizeForMatch(
+              (await input.inputValue().catch(() => "")) ||
+                (await input.innerText().catch(() => "")) ||
+                "",
+            );
+            if (!promptNeedle || !currentVal.includes(promptNeedle)) {
+              await input.click({ force: true });
+              await input.fill(fullPrompt);
+              await page.waitForTimeout(250);
+            }
+
+            const hasChip = await hasAttachedIngredientInPrompt(page);
+            const verifiedVal = normalizeForMatch(
+              (await input.inputValue().catch(() => "")) ||
+                (await input.innerText().catch(() => "")) ||
+                "",
+            );
+            const hasPrompt = !promptNeedle || verifiedVal.includes(promptNeedle);
+
+            if (hasChip === needsCharacter && hasPrompt) {
+              readyToSend = true;
+              break;
+            }
+
+            console.log(
+              `[Flow] Escena ${scene.id}: reintentando preparar compositor (intento ${prepAttempt}/5, chip=${hasChip}/${needsCharacter}, prompt=${hasPrompt})...`,
+            );
+            await page.waitForTimeout(450);
+          }
+
+          if (!readyToSend) {
+            throw new Error(
+              needsCharacter
+                ? `No se pudo confirmar el chip del personaje adjunto para la escena ${scene.id}.`
+                : `No se pudo preparar el prompt limpio para la escena ${scene.id}.`,
+            );
+          }
 
           const clicked = await clickGenerateButton(page);
           if (!clicked) {
