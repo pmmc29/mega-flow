@@ -171,27 +171,13 @@ async function listVisibleButtonLabels(page: Page): Promise<string[]> {
 async function attachCharacterReference(page: Page, characterRefPath: string): Promise<boolean> {
   if (!fs.existsSync(characterRefPath)) return false;
 
-  const directInput = page.locator('input[type="file"]').first();
-  if ((await directInput.count()) > 0) {
-    await directInput.setInputFiles(characterRefPath);
-    await page.waitForTimeout(1000);
-    return true;
-  }
-
   const addButtons = [
-    'button[aria-label*="Add" i]',
-    'button[aria-label*="Upload" i]',
-    'button[aria-label*="Image" i]',
-    'button[aria-label*="Ingredient" i]',
-    'button[aria-label*="Reference" i]',
-    'button[aria-label*="Subir" i]',
-    'button[aria-label*="Imagen" i]',
-    'button:has-text("Add image")',
+    'button[aria-label*="Añadir ingredientes" i]',
+    'button[aria-label*="Add ingredients" i]',
+    'button[aria-label*="ingredient" i]',
     'button:has-text("Ingredients")',
-    'button:has-text("Reference")',
-    'button:has-text("Upload")',
-    'button:has-text("Subir")',
-    'button:has-text("+")',
+    'button:has-text("Ingredientes")',
+    'button[aria-label*="Reference" i]',
   ];
 
   for (const sel of addButtons) {
@@ -207,7 +193,7 @@ async function attachCharacterReference(page: Page, characterRefPath: string): P
       return true;
     }
 
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(450);
     const afterInput = page.locator('input[type="file"]').first();
     if ((await afterInput.count()) > 0) {
       await afterInput.setInputFiles(characterRefPath);
@@ -217,7 +203,9 @@ async function attachCharacterReference(page: Page, characterRefPath: string): P
 
     // Si abrió un menú con opción Upload/Subir
     const uploadItem = page
-      .locator('[role="menuitem"]:has-text("Upload"), [role="menuitem"]:has-text("Subir"), button:has-text("Upload")')
+      .locator(
+        '[role="menuitem"]:has-text("Subir"), [role="menuitem"]:has-text("Upload"), button:has-text("Subir"), button:has-text("Upload")',
+      )
       .first();
     if ((await uploadItem.count()) > 0 && (await uploadItem.isVisible().catch(() => false))) {
       const menuChooserPromise = page.waitForEvent("filechooser", { timeout: 2000 }).catch(() => null);
@@ -231,6 +219,13 @@ async function attachCharacterReference(page: Page, characterRefPath: string): P
     }
   }
 
+  const directInput = page.locator('input[type="file"]').first();
+  if ((await directInput.count()) > 0) {
+    await directInput.setInputFiles(characterRefPath);
+    await page.waitForTimeout(1000);
+    return true;
+  }
+
   const labels = await listVisibleButtonLabels(page);
   console.log(`[Flow] Botones visibles al intentar adjuntar personaje: ${labels.join(" | ")}`);
   return false;
@@ -242,11 +237,18 @@ async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
     '[role="option"]:has-text("9:16")',
     '[role="menuitem"]:has-text("9:16")',
     '[role="menuitemradio"]:has-text("9:16")',
-    'button:has-text("Portrait")',
-    '[role="option"]:has-text("Portrait")',
-    '[role="menuitem"]:has-text("Portrait")',
+    '[role="tab"]:has-text("9:16")',
     'button:has-text("Vertical")',
     '[role="option"]:has-text("Vertical")',
+    '[role="tab"]:has-text("Vertical")',
+    'button:has-text("Portrait")',
+    '[role="option"]:has-text("Portrait")',
+    '[role="tab"]:has-text("Portrait")',
+    'button:has-text("crop_9_16")',
+    'button:has-text("crop_portrait")',
+    'button[aria-label*="9:16" i]',
+    'button[aria-label*="Vertical" i]',
+    'button[aria-label*="Portrait" i]',
   ];
 
   for (const sel of ratioTargets) {
@@ -264,36 +266,39 @@ async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
   if (await clickVerticalOptionIfVisible(page)) return true;
 
   const menuTriggers = [
+    'button[aria-label="Activador de ajustes"]',
+    'button[aria-label*="Activador de ajustes" i]',
+    'button:has-text("crop_16_9")',
+    'button[aria-label*="Settings trigger" i]',
     'button:has-text("16:9")',
     'button:has-text("Landscape")',
-    'button:has-text("Horizontal")',
     'button[aria-label*="aspect" i]',
     'button[aria-label*="ratio" i]',
-    'button[aria-label*="orienta" i]',
-    'button[aria-label*="settings" i]',
-    'button[aria-label*="tune" i]',
-    'button[aria-label*="config" i]',
-    'button[aria-label*="ajustes" i]',
-    '[role="combobox"]',
   ];
 
   for (const triggerSel of menuTriggers) {
     const trigger = page.locator(triggerSel).first();
     if ((await trigger.count()) === 0 || !(await trigger.isVisible().catch(() => false))) continue;
     await trigger.click().catch(() => {});
-    await page.waitForTimeout(450);
+    await page.waitForTimeout(500);
     if (await clickVerticalOptionIfVisible(page)) {
+      await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(200);
       return true;
     }
+    const openLabels = await listVisibleButtonLabels(page);
+    console.log(`[Flow] Popover abierto (${triggerSel}), botones visibles: ${openLabels.join(" | ")}`);
+    await page.keyboard.press("Escape").catch(() => {});
+    await page.waitForTimeout(200);
   }
 
-  const labels = await listVisibleButtonLabels(page);
-  console.log(`[Flow] No se pudo seleccionar 9:16 automáticamente. Botones visibles: ${labels.join(" | ")}`);
   return false;
 }
 
 async function clickGenerateButton(page: Page): Promise<boolean> {
   const generateSelectors = [
+    'button[aria-label*="Iniciar generación" i]',
+    'button[aria-label*="Start generation" i]',
     'button[aria-label*="Generate" i]',
     'button[aria-label*="Create" i]',
     'button[aria-label*="Send" i]',
