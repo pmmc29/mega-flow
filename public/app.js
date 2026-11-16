@@ -1105,7 +1105,11 @@ function setupSceneUploaders() {
 
   if (flowBatchBtn) {
     flowBatchBtn.addEventListener("click", async () => {
-      const concurrency = Number(flowConcurrencySelect?.value) || 5;
+      const rawConcurrency = Number(flowConcurrencySelect?.value);
+      const concurrency = Number.isFinite(rawConcurrency)
+        ? Math.max(1, Math.min(10, Math.round(rawConcurrency)))
+        : 5;
+      if (flowConcurrencySelect) flowConcurrencySelect.value = String(concurrency);
       flowBatchBtn.disabled = true;
       try {
         const res = await fetch("/api/scenes/generate-flow", {
@@ -1118,7 +1122,7 @@ function setupSceneUploaders() {
           showToast(json.error || "No se pudo iniciar la generación en lote", true);
           return;
         }
-        showToast(`Generando escenas en Google Flow (${concurrency} en ${concurrency})...`);
+        showToast(`Generando en Flow (1 pestaña, máx. ${concurrency} en vuelo)...`);
         await fetchStatus();
       } finally {
         flowBatchBtn.disabled = false;

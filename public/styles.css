@@ -1206,3 +1206,26 @@ code {
   border-color: var(--accent-primary, #2563eb);
   background: var(--bg-surface, #fff);
 }
+
+.flow-concurrency-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+  padding: 2px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-surface, #fff);
+}
+
+#flow-concurrency {
+  width: 48px;
+  padding: 3px 4px;
+  border: none;
+  background: transparent;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  text-align: center;
+}

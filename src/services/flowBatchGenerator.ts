@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import pLimit from "p-limit";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import {
   CHARACTER_CONSISTENCY_PREFIX,
@@ -169,7 +168,62 @@ async function listVisibleButtonLabels(page: Page): Promise<string[]> {
   );
 }
 
-async function attachCharacterReference(page: Page, characterRefPath: string): Promise<boolean> {
+async function clearAttachedIngredients(page: Page): Promise<void> {
+  // En la caja de prompt de Flow, los ingredientes adjuntos muestran un chip/miniatura con botón de cierre
+  for (let pass = 0; pass < 4; pass++) {
+    const removed = await page.evaluate(() => {
+      const promptBox =
+        document.querySelector('[role="textbox"][contenteditable="true"]')?.closest("form, [class*='prompt' i], [class*='composer' i], div") ||
+        document.body;
+      const closeButtons = Array.from(
+        promptBox.querySelectorAll(
+          'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button[aria-label*="Clear" i]',
+        ),
+      ).filter((btn) => {
+        const rect = btn.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      if (closeButtons.length > 0) {
+        (closeButtons[0] as HTMLElement).click();
+        return true;
+      }
+
+      // Buscar chips con texto "close" o "cancel" junto a una miniatura img pequeña dentro del compositor
+      const chipImgs = Array.from(promptBox.querySelectorAll("img")).filter((img) => {
+        const w = img.naturalWidth || img.width || 0;
+        return w > 0 && w < 180;
+      });
+      for (const img of chipImgs) {
+        const chip = img.closest("div, span, li");
+        const btn = chip?.querySelector("button");
+        if (btn) {
+          btn.click();
+          return true;
+        }
+      }
+      return false;
+    });
+    if (!removed) break;
+    await page.waitForTimeout(250);
+  }
+}
+
+async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const promptBox =
+      document.querySelector('[role="textbox"][contenteditable="true"]')?.closest("form, [class*='prompt' i], [class*='composer' i], div");
+    if (!promptBox) return false;
+    return Array.from(promptBox.querySelectorAll("img")).some((img) => {
+      const rect = img.getBoundingClientRect();
+      return rect.width > 16 && rect.width < 180 && rect.height > 16;
+    });
+  });
+}
+
+async function uploadCharacterReferenceOnce(
+  page: Page,
+  characterRefPath: string,
+): Promise<boolean> {
   if (!fs.existsSync(characterRefPath)) return false;
 
   const addButtons = [
@@ -202,7 +256,6 @@ async function attachCharacterReference(page: Page, characterRefPath: string): P
       return true;
     }
 
-    // Si abrió un menú con opción Upload/Subir
     const uploadItem = page
       .locator(
         '[role="menuitem"]:has-text("Subir"), [role="menuitem"]:has-text("Upload"), button:has-text("Subir"), button:has-text("Upload")',
@@ -227,9 +280,59 @@ async function attachCharacterReference(page: Page, characterRefPath: string): P
     return true;
   }
 
-  const labels = await listVisibleButtonLabels(page);
-  console.log(`[Flow] Botones visibles al intentar adjuntar personaje: ${labels.join(" | ")}`);
   return false;
+}
+
+async function attachExistingProjectIngredient(
+  page: Page,
+  characterRefPath: string,
+): Promise<boolean> {
+  if (await hasAttachedIngredientInPrompt(page)) {
+    return true;
+  }
+
+  const addButtons = [
+    'button[aria-label*="Añadir ingredientes" i]',
+    'button[aria-label*="Add ingredients" i]',
+    'button[aria-label*="ingredient" i]',
+  ];
+
+  for (const sel of addButtons) {
+    const btn = page.locator(sel).first();
+    if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
+
+    await btn.click().catch(() => {});
+    await page.waitForTimeout(450);
+
+    // Buscar miniatura del ingrediente ya subido dentro del overlay/popover abierto
+    const clickedExisting = await page.evaluate(() => {
+      const overlay = document.querySelector(".cdk-overlay-container, [role='dialog'], [role='menu']");
+      if (!overlay) return false;
+      const imgs = Array.from(overlay.querySelectorAll("img")).filter((img) => {
+        const rect = img.getBoundingClientRect();
+        return rect.width >= 32 && rect.height >= 32;
+      });
+      if (imgs.length > 0) {
+        const target = (imgs[0].closest("button, [role='button'], [role='menuitem'], [role='option'], div") || imgs[0]) as HTMLElement;
+        target.click();
+        return true;
+      }
+      return false;
+    });
+
+    if (clickedExisting) {
+      await page.waitForTimeout(350);
+      await page.keyboard.press("Escape").catch(() => {});
+      if (await hasAttachedIngredientInPrompt(page)) {
+        return true;
+      }
+    } else {
+      await page.keyboard.press("Escape").catch(() => {});
+    }
+  }
+
+  // Fallback si Flow no dejó el ingrediente en el menú: re-subir
+  return uploadCharacterReferenceOnce(page, characterRefPath);
 }
 
 async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
@@ -332,8 +435,6 @@ async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
     if (verticalOk) {
       return true;
     }
-    const openLabels = await listVisibleButtonLabels(page);
-    console.log(`[Flow] Popover abierto (${triggerSel}), botones visibles: ${openLabels.join(" | ")}`);
   }
 
   return false;
@@ -368,6 +469,7 @@ async function clickGenerateButton(page: Page): Promise<boolean> {
 interface CandidateImage {
   src: string;
   isVertical: boolean;
+  cardText: string;
 }
 
 async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
@@ -385,7 +487,12 @@ async function collectLargeImageSrcs(page: Page): Promise<CandidateImage[]> {
       .map((img) => {
         const w = img.naturalWidth || img.width || 0;
         const h = img.naturalHeight || img.height || 0;
-        return { src: img.src, isVertical: h > w };
+        const card = img.closest("article, [role='listitem'], [class*='card' i], [class*='tile' i], [class*='item' i]") || img.parentElement;
+        const cardText = `${img.getAttribute("alt") || ""} ${card?.textContent || ""}`
+          .trim()
+          .replace(/\s+/g, " ")
+          .slice(0, 300);
+        return { src: img.src, isVertical: h > w, cardText };
       });
   });
 }
@@ -422,108 +529,61 @@ async function downloadCandidateBuffer(page: Page, src: string): Promise<Buffer>
   return response.body();
 }
 
-async function saveSceneFromFlowPage(
-  page: Page,
-  beforeSrcs: Set<string>,
-  destPath: string,
-  options: { requireVertical: boolean; characterRefHash: string | null },
-): Promise<void> {
-  const deadline = Date.now() + 120_000;
-  const rejectedSrcs = new Set<string>(beforeSrcs);
-
-  while (Date.now() < deadline) {
-    const candidates = await collectLargeImageSrcs(page);
-    const pool = options.requireVertical
-      ? candidates.filter((c) => !rejectedSrcs.has(c.src) && c.isVertical)
-      : candidates.filter((c) => !rejectedSrcs.has(c.src));
-
-    for (const candidate of pool) {
-      try {
-        const buffer = await downloadCandidateBuffer(page, candidate.src);
-        if (options.characterRefHash && sha256(buffer) === options.characterRefHash) {
-          rejectedSrcs.add(candidate.src);
-          continue;
-        }
-        await fsp.mkdir(path.dirname(destPath), { recursive: true });
-        await fsp.writeFile(destPath, buffer);
-        return;
-      } catch {
-        rejectedSrcs.add(candidate.src);
-      }
-    }
-
-    await page.waitForTimeout(1500);
-  }
-
-  throw new Error(
-    "Tiempo de espera agotado esperando la imagen generada en Google Flow (120s).",
-  );
+function normalizeForMatch(text: string): string {
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
-async function generateSingleFlowScene(
-  context: BrowserContext,
-  scene: Scene,
-  characterRefPath: string,
-  destPath: string,
-): Promise<void> {
-  const page = await context.newPage();
+interface InFlightScene {
+  scene: Scene;
+  startedAt: number;
+  attempts: number;
+  keywords: string[];
+  snippet: string;
+}
 
-  try {
-    await ensureInFlowProject(page);
+function matchCandidateToInFlight(
+  candidate: CandidateImage,
+  inFlight: InFlightScene[],
+  requireVertical: boolean,
+): InFlightScene | null {
+  if (inFlight.length === 0) return null;
+  if (requireVertical && !candidate.isVertical) {
+    // Permitir si todas las escenas en vuelo llevan > 25s (por si Flow reporta dimensiones antes de escalar)
+    const oldestAge = Date.now() - inFlight[0].startedAt;
+    if (oldestAge < 25_000) return null;
+  }
 
-    const input = await findPromptInput(page);
-    if (!input) {
-      throw new Error(
-        "No se encontró el campo de prompt en Google Flow. Verifica que hayas iniciado sesión.",
-      );
-    }
+  const normCard = normalizeForMatch(candidate.cardText);
+  if (normCard.length > 0) {
+    let bestItem: InFlightScene | null = null;
+    let bestScore = 0;
 
-    let characterRefHash: string | null = null;
-    if (scene.use_character && fs.existsSync(characterRefPath)) {
-      characterRefHash = sha256(await fsp.readFile(characterRefPath));
-      const attached = await attachCharacterReference(page, characterRefPath);
-      if (attached) {
-        // Esperar hasta 10s a que character_ref.png termine de subir y aparecer en la galería antes de generar
-        const uploadDeadline = Date.now() + 10_000;
-        while (Date.now() < uploadDeadline) {
-          const imgs = await collectLargeImageSrcs(page);
-          if (imgs.length > 0) break;
-          await page.waitForTimeout(700);
-        }
-        await page.waitForTimeout(800);
-      } else {
-        console.log(
-          `[Flow] Escena ${scene.id}: no se pudo adjuntar character_ref.png automáticamente; enviando prompt con descripción.`,
-        );
+    for (const item of inFlight) {
+      let score = 0;
+      if (item.snippet.length >= 16 && normCard.includes(item.snippet)) {
+        score += 10;
+      }
+      for (const kw of item.keywords) {
+        if (normCard.includes(kw)) score += 1;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestItem = item;
       }
     }
 
-    const fullPrompt = buildFullFlowPrompt(scene);
-
-    await input.click({ force: true });
-    await input.fill(fullPrompt);
-    await page.waitForTimeout(300);
-
-    const verticalSelected = await selectVerticalAspectRatio(page);
-    await page.waitForTimeout(400);
-
-    // Capturar las imágenes ya presentes (incluido character_ref.png subido) justo antes de generar
-    const beforeSrcs = new Set((await collectLargeImageSrcs(page)).map((c) => c.src));
-
-    const clicked = await clickGenerateButton(page);
-    if (!clicked) {
-      await input.press("Enter");
+    if (bestItem && bestScore >= 2) {
+      return bestItem;
     }
-
-    // Dar tiempo mínimo a que inicie la generación antes de buscar la imagen nueva
-    await page.waitForTimeout(5000);
-    await saveSceneFromFlowPage(page, beforeSrcs, destPath, {
-      requireVertical: verticalSelected,
-      characterRefHash,
-    });
-  } finally {
-    await page.close().catch(() => {});
   }
+
+  return inFlight[0];
 }
 
 export interface FlowBatchOptions {
@@ -581,72 +641,183 @@ export async function generateFlowBatchScenes(
     loginContext = null;
   }
 
-  const concurrency = Math.max(
+  const maxInFlight = Math.max(
     1,
-    Math.min(8, Number(options.concurrency || process.env.FLOW_CONCURRENCY || 5)),
+    Math.min(10, Number(options.concurrency || process.env.FLOW_CONCURRENCY || 5)),
   );
   console.log(
-    `[Flow] Generando ${targetScenes.length} escena(s) en Google Flow (concurrencia: ${concurrency} en paralelo)...`,
+    `[Flow] Modo 1 pestaña / 1 proyecto: generando ${targetScenes.length} escena(s) (máx. ${maxInFlight} en vuelo)...`,
   );
 
   const context = await launchFlowContext();
-  const limit = pLimit(concurrency);
+  const page = context.pages()[0] ?? (await context.newPage());
+
   let generated = 0;
   let processed = 0;
   const failed: Array<{ sceneId: number; error: string }> = [];
-  options.onProgress?.({ completed: 0, total: targetScenes.length, lastSceneId: 0 });
+  const totalTargets = targetScenes.length;
+  options.onProgress?.({ completed: 0, total: totalTargets, lastSceneId: 0 });
 
   try {
-    await Promise.all(
-      targetScenes.map((scene) =>
-        limit(async () => {
-          const filename = `scene_${String(scene.id).padStart(3, "0")}.png`;
-          const destPath = path.join(options.scenesDir, filename);
+    await ensureInFlowProject(page);
+    const verticalSelected = await selectVerticalAspectRatio(page);
+    console.log(
+      `[Flow] Proyecto listo (9:16 + x1: ${verticalSelected ? "OK" : "manual/fallback"}).`,
+    );
 
-          let lastErr: unknown;
-          for (let attempt = 1; attempt <= 2; attempt++) {
-            try {
-              console.log(
-                `[Flow] Escena ${scene.id}/${storyboard.scenes.length} (intento ${attempt})...`,
-              );
-              await generateSingleFlowScene(
-                context,
-                scene,
-                options.characterRefPath,
-                destPath,
-              );
-              generated += 1;
-              processed += 1;
-              options.onProgress?.({
-                completed: processed,
-                total: targetScenes.length,
-                lastSceneId: scene.id,
-              });
-              console.log(`[Flow] Escena ${scene.id} guardada -> ${filename}`);
-              return;
-            } catch (err) {
-              lastErr = err;
-              console.error(
-                `[Flow] Error en escena ${scene.id} (intento ${attempt}): ${
-                  err instanceof Error ? err.message : String(err)
-                }`,
-              );
-            }
+    const hasAnyCharacter = targetScenes.some((s) => s.use_character);
+    let characterRefHash: string | null = null;
+    if (hasAnyCharacter && fs.existsSync(options.characterRefPath)) {
+      characterRefHash = sha256(await fsp.readFile(options.characterRefPath));
+      const uploaded = await uploadCharacterReferenceOnce(page, options.characterRefPath);
+      if (uploaded) {
+        console.log("[Flow] character_ref.png subido una sola vez al proyecto.");
+        const uploadDeadline = Date.now() + 10_000;
+        while (Date.now() < uploadDeadline) {
+          const imgs = await collectLargeImageSrcs(page);
+          if (imgs.length > 0) break;
+          await page.waitForTimeout(700);
+        }
+        await clearAttachedIngredients(page);
+      }
+    }
+
+    const knownSrcs = new Set<string>(
+      (await collectLargeImageSrcs(page)).map((c) => c.src),
+    );
+
+    const pending: Array<{ scene: Scene; attempts: number }> = targetScenes.map((scene) => ({
+      scene,
+      attempts: 0,
+    }));
+    const inFlight: InFlightScene[] = [];
+
+    while (pending.length > 0 || inFlight.length > 0) {
+      // 1. Enviar prompts 1 por 1 mientras inFlight < maxInFlight
+      while (pending.length > 0 && inFlight.length < maxInFlight) {
+        const next = pending.shift()!;
+        const scene = next.scene;
+
+        try {
+          const input = await findPromptInput(page);
+          if (!input) {
+            throw new Error("No se encontró el campo de prompt en Google Flow.");
           }
 
+          if (scene.use_character && fs.existsSync(options.characterRefPath)) {
+            await attachExistingProjectIngredient(page, options.characterRefPath);
+          } else {
+            await clearAttachedIngredients(page);
+          }
+
+          const fullPrompt = buildFullFlowPrompt(scene);
+          await input.click({ force: true });
+          await input.fill(fullPrompt);
+          await page.waitForTimeout(250);
+
+          const clicked = await clickGenerateButton(page);
+          if (!clicked) {
+            throw new Error("No se encontró el botón de generar en Google Flow.");
+          }
+
+          const normPrompt = normalizeForMatch(scene.image_prompt);
+          const keywords = Array.from(
+            new Set(normPrompt.split(" ").filter((w) => w.length >= 4)),
+          ).slice(0, 8);
+
+          inFlight.push({
+            scene,
+            startedAt: Date.now(),
+            attempts: next.attempts + 1,
+            keywords,
+            snippet: normPrompt.slice(0, 28),
+          });
+          console.log(
+            `[Flow] Prompt enviado: Escena ${scene.id}/${storyboard.scenes.length} (en vuelo: ${inFlight.length}/${maxInFlight})`,
+          );
+
+          await page.waitForTimeout(950);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[Flow] Error enviando escena ${scene.id}: ${msg}`);
           processed += 1;
+          failed.push({ sceneId: scene.id, error: msg });
           options.onProgress?.({
             completed: processed,
-            total: targetScenes.length,
+            total: totalTargets,
             lastSceneId: scene.id,
           });
-          failed.push({
-            sceneId: scene.id,
-            error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+        }
+      }
+
+      if (inFlight.length === 0) break;
+
+      // 2. Revisar imágenes completadas en la galería
+      await page.waitForTimeout(1500);
+      const candidates = await collectLargeImageSrcs(page);
+
+      for (const candidate of candidates) {
+        if (knownSrcs.has(candidate.src)) continue;
+        if (inFlight.length === 0) break;
+
+        try {
+          const buffer = await downloadCandidateBuffer(page, candidate.src);
+          if (characterRefHash && sha256(buffer) === characterRefHash) {
+            knownSrcs.add(candidate.src);
+            continue;
+          }
+
+          const matched = matchCandidateToInFlight(candidate, inFlight, verticalSelected);
+          if (!matched) continue;
+
+          knownSrcs.add(candidate.src);
+          const filename = `scene_${String(matched.scene.id).padStart(3, "0")}.png`;
+          const destPath = path.join(options.scenesDir, filename);
+          await fsp.writeFile(destPath, buffer);
+
+          const idx = inFlight.indexOf(matched);
+          if (idx !== -1) inFlight.splice(idx, 1);
+
+          generated += 1;
+          processed += 1;
+          console.log(
+            `[Flow] Escena ${matched.scene.id} guardada -> ${filename} (en vuelo: ${inFlight.length}/${maxInFlight})`,
+          );
+          options.onProgress?.({
+            completed: processed,
+            total: totalTargets,
+            lastSceneId: matched.scene.id,
           });
-        }),
-      ),
-    );
+        } catch {
+          knownSrcs.add(candidate.src);
+        }
+      }
+
+      // 3. Control de timeouts para escenas atascadas (>150s)
+      const now = Date.now();
+      for (let i = inFlight.length - 1; i >= 0; i--) {
+        const item = inFlight[i];
+        if (now - item.startedAt > 150_000) {
+          inFlight.splice(i, 1);
+          if (item.attempts < 2) {
+            console.warn(
+              `[Flow] Tiempo agotado en escena ${item.scene.id}; reintentando en cola...`,
+            );
+            pending.push({ scene: item.scene, attempts: item.attempts });
+          } else {
+            processed += 1;
+            const msg = "Tiempo de espera agotado en Google Flow (150s).";
+            console.error(`[Flow] Escena ${item.scene.id} fallida: ${msg}`);
+            failed.push({ sceneId: item.scene.id, error: msg });
+            options.onProgress?.({
+              completed: processed,
+              total: totalTargets,
+              lastSceneId: item.scene.id,
+            });
+          }
+        }
+      }
+    }
   } finally {
     await context.close().catch(() => {});
   }

@@ -510,11 +510,17 @@
               <button type="button" class="btn btn-ghost btn-sm" id="btn-flow-login">
                 Abrir Flow (Login)
               </button>
-              <select id="flow-concurrency" aria-label="Escenas en paralelo" title="Escenas en paralelo">
-                <option value="3">3 en 3</option>
-                <option value="5" selected>5 en 5</option>
-                <option value="8">8 en 8</option>
-              </select>
+              <label class="flow-concurrency-wrap" title="Máximo de imágenes generándose al mismo tiempo">
+                <span>Máx. en vuelo</span>
+                <input
+                  type="number"
+                  id="flow-concurrency"
+                  min="1"
+                  max="10"
+                  value="5"
+                  aria-label="Máximo de escenas en vuelo"
+                />
+              </label>
               <button type="button" class="btn btn-primary btn-sm" id="btn-flow-batch">
                 Generar lote en Flow
               </button>
