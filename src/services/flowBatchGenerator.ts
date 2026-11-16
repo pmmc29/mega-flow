@@ -220,11 +220,93 @@ async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
   });
 }
 
+async function closeIngredientModalIfOpen(page: Page): Promise<void> {
+  const modalMarker = page
+    .locator(
+      'button:has-text("Añadir a petición"), button:has-text("Add to prompt"), button:has-text("Subir archivo"), .cdk-overlay-backdrop-showing',
+    )
+    .first();
+
+  if ((await modalMarker.count()) === 0 || !(await modalMarker.isVisible().catch(() => false))) {
+    return;
+  }
+
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(250);
+
+  const backdrop = page.locator(".cdk-overlay-backdrop-showing").first();
+  if ((await backdrop.count()) > 0 && (await backdrop.isVisible().catch(() => false))) {
+    await backdrop.click({ position: { x: 20, y: 20 }, force: true }).catch(() => {});
+    await page.waitForTimeout(250);
+  }
+}
+
+async function clickAddToPromptIfVisible(page: Page): Promise<boolean> {
+  const addToPromptSelectors = [
+    'button:has-text("Añadir a petición")',
+    'button:has-text("Add to prompt")',
+    'button:has-text("Agregar a petición")',
+    'button[aria-label*="Añadir a petición" i]',
+    'button[aria-label*="Add to prompt" i]',
+  ];
+
+  for (const sel of addToPromptSelectors) {
+    const btn = page.locator(sel).first();
+    if ((await btn.count()) > 0 && (await btn.isVisible().catch(() => false))) {
+      await btn.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(450);
+      return true;
+    }
+  }
+  return false;
+}
+
+async function uploadViaOpenIngredientModal(
+  page: Page,
+  characterRefPath: string,
+): Promise<boolean> {
+  const uploadButtons = [
+    'button:has-text("Subir archivo")',
+    'button[aria-label*="Subir archivo" i]',
+    'button:has-text("Upload file")',
+    'button:has-text("Subir")',
+    'button:has-text("Upload")',
+    '[role="menuitem"]:has-text("Subir")',
+    '[role="menuitem"]:has-text("Upload")',
+  ];
+
+  for (const sel of uploadButtons) {
+    const uploadBtn = page.locator(sel).first();
+    if ((await uploadBtn.count()) === 0 || !(await uploadBtn.isVisible().catch(() => false))) {
+      continue;
+    }
+    const chooserPromise = page.waitForEvent("filechooser", { timeout: 2500 }).catch(() => null);
+    await uploadBtn.click({ force: true }).catch(() => {});
+    const chooser = await chooserPromise;
+    if (chooser) {
+      await chooser.setFiles(characterRefPath);
+      await page.waitForTimeout(1500);
+      return true;
+    }
+  }
+
+  const afterInput = page.locator('input[type="file"]').first();
+  if ((await afterInput.count()) > 0) {
+    await afterInput.setInputFiles(characterRefPath);
+    await page.waitForTimeout(1500);
+    return true;
+  }
+
+  return false;
+}
+
 async function uploadCharacterReferenceOnce(
   page: Page,
   characterRefPath: string,
 ): Promise<boolean> {
   if (!fs.existsSync(characterRefPath)) return false;
+
+  await closeIngredientModalIfOpen(page);
 
   const addButtons = [
     'button[aria-label*="Añadir ingredientes" i]',
@@ -239,44 +321,30 @@ async function uploadCharacterReferenceOnce(
     const btn = page.locator(sel).first();
     if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
 
-    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 1500 }).catch(() => null);
-    await btn.click().catch(() => {});
+    const fileChooserPromise = page.waitForEvent("filechooser", { timeout: 1200 }).catch(() => null);
+    await btn.click({ force: true }).catch(() => {});
     const chooser = await fileChooserPromise;
     if (chooser) {
       await chooser.setFiles(characterRefPath);
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(1500);
+      await closeIngredientModalIfOpen(page);
       return true;
     }
 
-    await page.waitForTimeout(450);
-    const afterInput = page.locator('input[type="file"]').first();
-    if ((await afterInput.count()) > 0) {
-      await afterInput.setInputFiles(characterRefPath);
-      await page.waitForTimeout(1000);
+    await page.waitForTimeout(500);
+    const uploaded = await uploadViaOpenIngredientModal(page, characterRefPath);
+    if (uploaded) {
+      await closeIngredientModalIfOpen(page);
       return true;
     }
-
-    const uploadItem = page
-      .locator(
-        '[role="menuitem"]:has-text("Subir"), [role="menuitem"]:has-text("Upload"), button:has-text("Subir"), button:has-text("Upload")',
-      )
-      .first();
-    if ((await uploadItem.count()) > 0 && (await uploadItem.isVisible().catch(() => false))) {
-      const menuChooserPromise = page.waitForEvent("filechooser", { timeout: 2000 }).catch(() => null);
-      await uploadItem.click().catch(() => {});
-      const menuChooser = await menuChooserPromise;
-      if (menuChooser) {
-        await menuChooser.setFiles(characterRefPath);
-        await page.waitForTimeout(1000);
-        return true;
-      }
-    }
+    await closeIngredientModalIfOpen(page);
   }
 
   const directInput = page.locator('input[type="file"]').first();
   if ((await directInput.count()) > 0) {
     await directInput.setInputFiles(characterRefPath);
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(1500);
+    await closeIngredientModalIfOpen(page);
     return true;
   }
 
@@ -291,6 +359,8 @@ async function attachExistingProjectIngredient(
     return true;
   }
 
+  await closeIngredientModalIfOpen(page);
+
   const addButtons = [
     'button[aria-label*="Añadir ingredientes" i]',
     'button[aria-label*="Add ingredients" i]',
@@ -301,38 +371,39 @@ async function attachExistingProjectIngredient(
     const btn = page.locator(sel).first();
     if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
 
-    await btn.click().catch(() => {});
-    await page.waitForTimeout(450);
+    await btn.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(500);
 
-    // Buscar miniatura del ingrediente ya subido dentro del overlay/popover abierto
-    const clickedExisting = await page.evaluate(() => {
-      const overlay = document.querySelector(".cdk-overlay-container, [role='dialog'], [role='menu']");
-      if (!overlay) return false;
-      const imgs = Array.from(overlay.querySelectorAll("img")).filter((img) => {
-        const rect = img.getBoundingClientRect();
-        return rect.width >= 32 && rect.height >= 32;
-      });
-      if (imgs.length > 0) {
-        const target = (imgs[0].closest("button, [role='button'], [role='menuitem'], [role='option'], div") || imgs[0]) as HTMLElement;
-        target.click();
-        return true;
-      }
-      return false;
-    });
+    // Seleccionar character_ref.png en la lista del modal (si no está ya seleccionado)
+    const refEntry = page
+      .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
+      .first();
+    if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
+      await refEntry.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(250);
+    }
 
-    if (clickedExisting) {
-      await page.waitForTimeout(350);
-      await page.keyboard.press("Escape").catch(() => {});
+    // Hacer clic en el botón "Añadir a petición" / "Add to prompt"
+    if (await clickAddToPromptIfVisible(page)) {
+      await closeIngredientModalIfOpen(page);
       if (await hasAttachedIngredientInPrompt(page)) {
         return true;
       }
-    } else {
-      await page.keyboard.press("Escape").catch(() => {});
     }
+
+    // Si aún no había archivo en el modal, subirlo aquí mismo y luego pulsar "Añadir a petición"
+    if (await uploadViaOpenIngredientModal(page, characterRefPath)) {
+      await clickAddToPromptIfVisible(page);
+      await closeIngredientModalIfOpen(page);
+      if (await hasAttachedIngredientInPrompt(page)) {
+        return true;
+      }
+    }
+
+    await closeIngredientModalIfOpen(page);
   }
 
-  // Fallback si Flow no dejó el ingrediente en el menú: re-subir
-  return uploadCharacterReferenceOnce(page, characterRefPath);
+  return false;
 }
 
 async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
