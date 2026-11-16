@@ -298,6 +298,7 @@ function renderOutputs(outputs, config = {}) {
     if (videoPlayer.dataset.loadedAt !== finalVideo.updatedAt) {
       videoPlayer.src = `/media/final_video?t=${encodeURIComponent(finalVideo.updatedAt || Date.now())}`;
       videoPlayer.dataset.loadedAt = finalVideo.updatedAt || "";
+      videoPlayer.load();
     }
   }
 }

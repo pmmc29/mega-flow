@@ -136,27 +136,37 @@ export async function renderFinalVideo(
 
     const isPreview = Boolean(options.previewMode);
     await fsp.mkdir(path.dirname(outputPath), { recursive: true });
+    const tempOutputPath = `${outputPath}.rendering.mp4`;
+    await fsp.rm(tempOutputPath, { force: true });
     console.log(
       `[VideoRenderer] Renderizando ${composition.durationInFrames} frames (${isPreview ? "540x960 Vista Previa" : `${composition.width}x${composition.height} Final`} @ ${composition.fps}fps)...`,
     );
 
     let lastLoggedPct = -10;
-    await renderMedia({
-      composition,
-      serveUrl,
-      codec: "h264",
-      outputLocation: outputPath,
-      inputProps,
-      scale: isPreview ? 0.5 : 1,
-      crf: isPreview ? 28 : 18,
-      onProgress: ({ progress }) => {
-        const pct = Math.floor(progress * 100);
-        if (pct >= lastLoggedPct + 10) {
-          lastLoggedPct = pct;
-          console.log(`[VideoRenderer] Progreso: ${pct}%`);
-        }
-      },
-    });
+    try {
+      await renderMedia({
+        composition,
+        serveUrl,
+        codec: "h264",
+        outputLocation: tempOutputPath,
+        overwrite: true,
+        inputProps,
+        scale: isPreview ? 0.5 : 1,
+        crf: isPreview ? 28 : 18,
+        onProgress: ({ progress }) => {
+          const pct = Math.floor(progress * 100);
+          if (pct >= lastLoggedPct + 10) {
+            lastLoggedPct = pct;
+            console.log(`[VideoRenderer] Progreso: ${pct}%`);
+          }
+        },
+      });
+
+      await fsp.rm(outputPath, { force: true });
+      await fsp.rename(tempOutputPath, outputPath);
+    } finally {
+      await fsp.rm(tempOutputPath, { force: true }).catch(() => {});
+    }
 
     console.log(`[VideoRenderer] Video renderizado -> ${outputPath}`);
     return outputPath;

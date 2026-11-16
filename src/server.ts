@@ -1273,6 +1273,7 @@ app.get("/media/voiceover", async (_req, res) => {
 app.get("/media/final_video", async (_req, res) => {
   const { paths } = await getActiveProject();
   if (!fs.existsSync(paths.finalVideo)) return res.status(404).end();
+  res.setHeader("Cache-Control", "no-store");
   res.sendFile(paths.finalVideo);
 });
 app.get("/media/scenes/:filename", async (req, res) => {
