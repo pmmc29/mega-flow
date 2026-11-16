@@ -169,7 +169,7 @@ async function listVisibleButtonLabels(page: Page): Promise<string[]> {
 }
 
 async function clearAttachedIngredients(page: Page): Promise<void> {
-  // En la caja de prompt de Flow, los ingredientes adjuntos muestran un chip/miniatura con botón de cierre
+  // Solo eliminar chips de ingredientes que contengan una imagen/miniatura (nunca chips de texto como "Agente")
   for (let pass = 0; pass < 4; pass++) {
     const removed = await page.evaluate(() => {
       const textbox = document.querySelector('[role="textbox"][contenteditable="true"], textarea');
@@ -177,7 +177,7 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
       while (promptBox && promptBox.parentElement && promptBox.parentElement !== document.body) {
         if (
           promptBox.querySelector(
-            'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i], button[aria-label*="Activador de ajustes" i], button[aria-label*="Añadir ingredientes" i]',
+            'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i]',
           )
         ) {
           break;
@@ -186,22 +186,9 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
       }
       const root = promptBox || document.body;
 
-      const closeButtons = Array.from(
-        root.querySelectorAll(
-          'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i], button[aria-label*="Clear" i], button[aria-label*="Cerrar" i]',
-        ),
-      ).filter((btn) => {
-        const rect = btn.getBoundingClientRect();
-        return rect.width > 0 && rect.height > 0;
-      });
-      if (closeButtons.length > 0) {
-        (closeButtons[0] as HTMLElement).click();
-        return true;
-      }
-
       const chipImgs = Array.from(root.querySelectorAll("img")).filter((img) => {
         const rect = img.getBoundingClientRect();
-        return rect.width > 16 && rect.width < 180 && rect.height > 16;
+        return rect.width >= 16 && rect.width <= 220 && rect.height >= 16;
       });
       for (const img of chipImgs) {
         const chip = img.closest("div, span, li");
@@ -230,7 +217,7 @@ async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
     while (promptBox && promptBox.parentElement && promptBox.parentElement !== document.body) {
       if (
         promptBox.querySelector(
-          'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i], button[aria-label*="Activador de ajustes" i], button[aria-label*="Añadir ingredientes" i]',
+          'button[aria-label*="Iniciar generación" i], button[aria-label*="Start generation" i]',
         )
       ) {
         break;
@@ -238,9 +225,18 @@ async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
       promptBox = promptBox.parentElement;
     }
     if (!promptBox) return false;
-    return Array.from(promptBox.querySelectorAll("img")).some((img) => {
+
+    const hasImg = Array.from(promptBox.querySelectorAll("img")).some((img) => {
       const rect = img.getBoundingClientRect();
-      return rect.width > 16 && rect.width < 180 && rect.height > 16;
+      return rect.width >= 16 && rect.width <= 220 && rect.height >= 16;
+    });
+    if (hasImg) return true;
+
+    return Array.from(promptBox.querySelectorAll("[style*='background-image']")).some((el) => {
+      const bg = (el as HTMLElement).style.backgroundImage || "";
+      if (!bg.includes("url(")) return false;
+      const rect = el.getBoundingClientRect();
+      return rect.width >= 16 && rect.width <= 220 && rect.height >= 16;
     });
   });
 }
@@ -397,19 +393,23 @@ async function attachExistingProjectIngredient(
     if ((await btn.count()) === 0 || !(await btn.isVisible().catch(() => false))) continue;
 
     await btn.click({ force: true }).catch(() => {});
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(550);
 
-    // Seleccionar character_ref.png en la lista del modal (si no está ya seleccionado)
-    const refEntry = page
-      .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
-      .first();
-    if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
-      await refEntry.click({ force: true }).catch(() => {});
-      await page.waitForTimeout(250);
+    // Si "Añadir a petición" ya está visible (character_ref ya preseleccionado), pulsarlo directo; si no, seleccionar character_ref primero
+    let added = await clickAddToPromptIfVisible(page);
+    if (!added) {
+      const refEntry = page
+        .locator('.cdk-overlay-container :text("character_ref"), [role="dialog"] :text("character_ref")')
+        .first();
+      if ((await refEntry.count()) > 0 && (await refEntry.isVisible().catch(() => false))) {
+        await refEntry.click({ force: true }).catch(() => {});
+        await page.waitForTimeout(250);
+      }
+      added = await clickAddToPromptIfVisible(page);
     }
 
-    // Hacer clic en el botón "Añadir a petición" / "Add to prompt"
-    if (await clickAddToPromptIfVisible(page)) {
+    if (added) {
+      await page.waitForTimeout(450);
       await closeIngredientModalIfOpen(page);
       if (await hasAttachedIngredientInPrompt(page)) {
         return true;
@@ -419,6 +419,7 @@ async function attachExistingProjectIngredient(
     // Si aún no había archivo en el modal, subirlo aquí mismo y luego pulsar "Añadir a petición"
     if (await uploadViaOpenIngredientModal(page, characterRefPath)) {
       await clickAddToPromptIfVisible(page);
+      await page.waitForTimeout(450);
       await closeIngredientModalIfOpen(page);
       if (await hasAttachedIngredientInPrompt(page)) {
         return true;
@@ -857,7 +858,9 @@ export async function generateFlowBatchScenes(
           if (imgs.length > 0) break;
           await page.waitForTimeout(700);
         }
-        await clearAttachedIngredients(page);
+        if (!targetScenes[0]?.use_character) {
+          await clearAttachedIngredients(page);
+        }
       }
     }
 
