@@ -899,7 +899,9 @@ export async function generateFlowBatchScenes(
                 (await input.innerText().catch(() => "")) ||
                 "",
             );
-            if (!promptNeedle || !currentVal.includes(promptNeedle)) {
+            const hasEnoughText =
+              currentVal.length >= 15 && (!promptNeedle || currentVal.includes(promptNeedle));
+            if (!hasEnoughText) {
               await input.click({ force: true });
               await input.fill(fullPrompt);
               await page.waitForTimeout(250);
@@ -908,7 +910,7 @@ export async function generateFlowBatchScenes(
             if (needsCharacter) {
               if (!(await hasAttachedIngredientInPrompt(page))) {
                 await attachExistingProjectIngredient(page, options.characterRefPath);
-                await page.waitForTimeout(300);
+                await page.waitForTimeout(400);
               }
             } else if (await hasAttachedIngredientInPrompt(page)) {
               await clearAttachedIngredients(page);
@@ -921,7 +923,8 @@ export async function generateFlowBatchScenes(
                 (await input.innerText().catch(() => "")) ||
                 "",
             );
-            const hasPrompt = !promptNeedle || verifiedVal.includes(promptNeedle);
+            const hasPrompt =
+              verifiedVal.length >= 15 && (!promptNeedle || verifiedVal.includes(promptNeedle));
 
             if (hasChip === needsCharacter && hasPrompt) {
               readyToSend = true;
