@@ -262,6 +262,26 @@ async function clickVerticalOptionIfVisible(page: Page): Promise<boolean> {
   return false;
 }
 
+async function clickSingleOutputIfVisible(page: Page): Promise<boolean> {
+  const x1Targets = [
+    'button:has-text("x1")',
+    '[role="tab"]:has-text("x1")',
+    '[role="option"]:has-text("x1")',
+    '[role="menuitemradio"]:has-text("x1")',
+    'button[aria-label*="x1" i]',
+  ];
+
+  for (const sel of x1Targets) {
+    const el = page.locator(sel).first();
+    if ((await el.count()) > 0 && (await el.isVisible().catch(() => false))) {
+      await el.click().catch(() => {});
+      await page.waitForTimeout(200);
+      return true;
+    }
+  }
+  return false;
+}
+
 async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
   if (await clickVerticalOptionIfVisible(page)) return true;
 
@@ -281,7 +301,11 @@ async function selectVerticalAspectRatio(page: Page): Promise<boolean> {
     if ((await trigger.count()) === 0 || !(await trigger.isVisible().catch(() => false))) continue;
     await trigger.click().catch(() => {});
     await page.waitForTimeout(500);
-    if (await clickVerticalOptionIfVisible(page)) {
+
+    const verticalOk = await clickVerticalOptionIfVisible(page);
+    await clickSingleOutputIfVisible(page);
+
+    if (verticalOk) {
       await page.keyboard.press("Escape").catch(() => {});
       await page.waitForTimeout(200);
       return true;
