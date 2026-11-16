@@ -905,23 +905,29 @@ export async function generateFlowBatchScenes(
               continue;
             }
 
-            const currentVal = normalizeForMatch(
-              (await input.inputValue().catch(() => "")) ||
-                (await input.innerText().catch(() => "")) ||
-                "",
-            );
+            const readCurrent = async () =>
+              normalizeForMatch(
+                (await input.inputValue().catch(() => "")) ||
+                  (await input.innerText().catch(() => "")) ||
+                  (await input.textContent().catch(() => "")) ||
+                  "",
+              );
+
+            const currentVal = await readCurrent();
             const hasEnoughText =
               currentVal.length >= 15 && (!promptNeedle || currentVal.includes(promptNeedle));
-            if (!hasEnoughText) {
+            // Si ya hay texto largo en el editor y el chip ya está puesto, no volver a hacer fill() para no borrar el chip
+            const chipAlreadyThere = await hasAttachedIngredientInPrompt(page);
+            if (!hasEnoughText && !(chipAlreadyThere && currentVal.length >= 15)) {
               await input.click({ force: true });
               await input.fill(fullPrompt);
-              await page.waitForTimeout(250);
+              await page.waitForTimeout(300);
             }
 
             if (needsCharacter) {
               if (!(await hasAttachedIngredientInPrompt(page))) {
                 await attachExistingProjectIngredient(page, options.characterRefPath);
-                await page.waitForTimeout(400);
+                await page.waitForTimeout(450);
               }
             } else if (await hasAttachedIngredientInPrompt(page)) {
               await clearAttachedIngredients(page);
@@ -929,11 +935,7 @@ export async function generateFlowBatchScenes(
             }
 
             const hasChip = await hasAttachedIngredientInPrompt(page);
-            const verifiedVal = normalizeForMatch(
-              (await input.inputValue().catch(() => "")) ||
-                (await input.innerText().catch(() => "")) ||
-                "",
-            );
+            const verifiedVal = await readCurrent();
             const hasPrompt =
               verifiedVal.length >= 15 && (!promptNeedle || verifiedVal.includes(promptNeedle));
 
@@ -943,7 +945,7 @@ export async function generateFlowBatchScenes(
             }
 
             console.log(
-              `[Flow] Escena ${scene.id}: reintentando preparar compositor (intento ${prepAttempt}/5, chip=${hasChip}/${needsCharacter}, prompt=${hasPrompt})...`,
+              `[Flow] Escena ${scene.id}: reintentando preparar compositor (intento ${prepAttempt}/5, chip=${hasChip}/${needsCharacter}, prompt=${hasPrompt}, len=${verifiedVal.length})...`,
             );
             await page.waitForTimeout(450);
           }
