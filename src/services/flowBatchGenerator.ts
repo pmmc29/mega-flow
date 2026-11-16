@@ -211,7 +211,9 @@ async function clearAttachedIngredients(page: Page): Promise<void> {
 
 async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
   return page.evaluate(() => {
-    const textbox = document.querySelector('[role="textbox"][contenteditable="true"], textarea');
+    const textbox =
+      document.querySelector('[role="textbox"][contenteditable="true"]') ||
+      document.querySelector("textarea");
     if (!textbox) return false;
     let promptBox: Element | null = textbox;
     while (promptBox && promptBox.parentElement && promptBox.parentElement !== document.body) {
@@ -226,18 +228,43 @@ async function hasAttachedIngredientInPrompt(page: Page): Promise<boolean> {
     }
     if (!promptBox) return false;
 
-    const hasImg = Array.from(promptBox.querySelectorAll("img")).some((img) => {
-      const rect = img.getBoundingClientRect();
-      return rect.width >= 16 && rect.width <= 220 && rect.height >= 16;
-    });
-    if (hasImg) return true;
+    const searchRoot = promptBox.parentElement && promptBox.parentElement !== document.body
+      ? promptBox.parentElement
+      : promptBox;
 
-    return Array.from(promptBox.querySelectorAll("[style*='background-image']")).some((el) => {
-      const bg = (el as HTMLElement).style.backgroundImage || "";
-      if (!bg.includes("url(")) return false;
+    // 1. Miniatura <img> o <canvas> dentro del compositor (excluyendo la galería de imágenes grandes)
+    const hasImgOrCanvas = Array.from(searchRoot.querySelectorAll("img, canvas")).some((el) => {
+      if (el.closest("article, [role='listitem'], [class*='gallery' i], [class*='feed' i]")) {
+        return false;
+      }
       const rect = el.getBoundingClientRect();
-      return rect.width >= 16 && rect.width <= 220 && rect.height >= 16;
+      return rect.width >= 12 && rect.width <= 240 && rect.height >= 12 && rect.height <= 240;
     });
+    if (hasImgOrCanvas) return true;
+
+    // 2. Miniatura con background-image CSS (inline o por clase)
+    const hasBgImg = Array.from(searchRoot.querySelectorAll("div, span")).some((el) => {
+      const rect = el.getBoundingClientRect();
+      if (rect.width < 12 || rect.width > 240 || rect.height < 12 || rect.height > 240) return false;
+      const bg = getComputedStyle(el).backgroundImage || "";
+      return bg.includes("url(");
+    });
+    if (hasBgImg) return true;
+
+    // 3. Chip con texto character_ref o botón de quitar distinto de "Agente"
+    const hasRefText = /character_ref/i.test(searchRoot.textContent || "");
+    if (hasRefText) return true;
+
+    const hasNonAgentRemoveBtn = Array.from(
+      searchRoot.querySelectorAll(
+        'button[aria-label*="Quitar" i], button[aria-label*="Eliminar" i], button[aria-label*="Remove" i], button[aria-label*="Delete" i]',
+      ),
+    ).some((btn) => {
+      const chipText = (btn.closest("div, span, li")?.textContent || "").toLowerCase();
+      return !chipText.includes("agente") && !chipText.includes("agent");
+    });
+
+    return hasNonAgentRemoveBtn;
   });
 }
 
