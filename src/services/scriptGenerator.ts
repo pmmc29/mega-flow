@@ -10,10 +10,30 @@ import {
   type ModularFormats,
 } from "./formatConfig.js";
 
+export type MasterPromptModuleKey =
+  | "guion_limpio"
+  | "elevenlabs"
+  | "remotion"
+  | "storyboard";
+
+const ALL_MASTER_MODULES: MasterPromptModuleKey[] = [
+  "guion_limpio",
+  "elevenlabs",
+  "remotion",
+  "storyboard",
+];
+
 export function buildRetentionScriptPrompt(
   options: ScriptGenerationOptions,
   formats: ModularFormats = DEFAULT_GLOBAL_FORMATS,
+  includedModules?: MasterPromptModuleKey[],
 ): string {
+  const activeSet = new Set<MasterPromptModuleKey>(
+    Array.isArray(includedModules) && includedModules.length > 0
+      ? includedModules
+      : ALL_MASTER_MODULES,
+  );
+
   const targetWords = Math.round((options.durationSeconds / 60) * 140);
   const approxScenes = Math.max(4, Math.round(options.durationSeconds / 4));
   const midEndSeconds = Math.max(20, options.durationSeconds - 10);
@@ -35,47 +55,57 @@ export function buildRetentionScriptPrompt(
   const retentionStructure = applyTemplateVars(formats.prompt_maestro.retentionStructure, vars);
   const outputRules = applyTemplateVars(formats.prompt_maestro.outputRules, vars);
 
-  const guionRules = applyTemplateVars(formats.guion_limpio.rules, vars);
-  const guionHint = applyTemplateVars(formats.guion_limpio.placeholderHint, vars);
+  const parts: string[] = [roleIntro, "", retentionStructure];
 
-  const elevenGuide = applyTemplateVars(formats.elevenlabs.tagGuide, vars);
-  const elevenHint = applyTemplateVars(formats.elevenlabs.placeholderHint, vars);
+  if (activeSet.has("guion_limpio")) {
+    parts.push("", applyTemplateVars(formats.guion_limpio.rules, vars));
+  }
+  if (activeSet.has("elevenlabs")) {
+    parts.push("", applyTemplateVars(formats.elevenlabs.tagGuide, vars));
+  }
 
-  const remotionSchema = applyTemplateVars(formats.remotion.schemaExample, vars);
-  const remotionNotes = applyTemplateVars(formats.remotion.notes, vars);
+  parts.push("", outputRules, "", "```text");
 
-  const storyboardSchema = applyTemplateVars(formats.storyboard.schemaExample, vars);
-  const storyboardNotes = applyTemplateVars(formats.storyboard.notes, vars);
+  if (activeSet.has("guion_limpio")) {
+    parts.push(
+      "=== GUION_LIMPIO ===",
+      applyTemplateVars(formats.guion_limpio.placeholderHint, vars),
+      "",
+    );
+  }
+  if (activeSet.has("elevenlabs")) {
+    parts.push(
+      "=== ELEVENLABS ===",
+      applyTemplateVars(formats.elevenlabs.placeholderHint, vars),
+      "",
+    );
+  }
+  if (activeSet.has("remotion")) {
+    parts.push(
+      "=== REMOTION_JSON ===",
+      applyTemplateVars(formats.remotion.schemaExample, vars),
+      "",
+    );
+  }
+  if (activeSet.has("storyboard")) {
+    parts.push(
+      "=== STORYBOARD_JSON ===",
+      applyTemplateVars(formats.storyboard.schemaExample, vars),
+      "",
+    );
+  }
 
-  const parts = [
-    roleIntro,
-    "",
-    retentionStructure,
-    "",
-    guionRules,
-    "",
-    elevenGuide,
-    "",
-    outputRules,
-    "",
-    "```text",
-    "=== GUION_LIMPIO ===",
-    guionHint,
-    "",
-    "=== ELEVENLABS ===",
-    elevenHint,
-    "",
-    "=== REMOTION_JSON ===",
-    remotionSchema,
-    "",
-    "=== STORYBOARD_JSON ===",
-    storyboardSchema,
-    "```",
-    "",
-    remotionNotes,
-    "",
-    storyboardNotes,
-  ];
+  if (parts[parts.length - 1] === "") {
+    parts.pop();
+  }
+  parts.push("```");
+
+  if (activeSet.has("remotion")) {
+    parts.push("", applyTemplateVars(formats.remotion.notes, vars));
+  }
+  if (activeSet.has("storyboard")) {
+    parts.push("", applyTemplateVars(formats.storyboard.notes, vars));
+  }
 
   return parts.filter((line, idx, arr) => !(line === "" && arr[idx - 1] === "")).join("\n");
 }
@@ -242,8 +272,8 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     extracted[curr.key] = text.slice(curr.endOfHeader, nextStart).trim();
   }
 
-  if (!extracted.clean) {
-    throw new Error("Falta el contenido de === GUION_LIMPIO === en el bloque pegado.");
+  if (!extracted.clean && !extracted.eleven && !extracted.remotion && !extracted.storyboard) {
+    throw new Error("El bloque pegado no contiene contenido en ninguna de las secciones.");
   }
 
   let formattedRemotion = "";

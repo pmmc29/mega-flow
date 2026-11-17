@@ -27,11 +27,14 @@ export interface Storyboard {
   scenes: Scene[];
 }
 
+export type MasterPromptModuleKey = "guion_limpio" | "elevenlabs" | "remotion" | "storyboard";
+
 export interface ScriptGenerationOptions {
   topic: string;
   durationSeconds: number;
   tone: string;
   customInstructions?: string;
+  includeModules?: MasterPromptModuleKey[];
 }
 
 export interface GeneratedScript {

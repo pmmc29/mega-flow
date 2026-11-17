@@ -12,7 +12,14 @@ export type FormatModuleKey =
   | "flow_visual"
   | "musica";
 
+export type PromptIncludedModule =
+  | "guion_limpio"
+  | "elevenlabs"
+  | "remotion"
+  | "storyboard";
+
 export interface PromptMaestroFormat {
+  includedModules: PromptIncludedModule[];
   roleIntro: string;
   retentionStructure: string;
   outputRules: string;
@@ -138,6 +145,7 @@ export const FORMAT_MODULE_META: Array<{
 
 export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
   prompt_maestro: {
+    includedModules: ["guion_limpio", "elevenlabs", "remotion", "storyboard"],
     roleIntro: [
       'Actúa como un guionista experto en retención máxima y director visual para videos verticales cortos (YouTube Shorts, TikTok, Instagram Reels) del canal "Mega Studio".',
       "",

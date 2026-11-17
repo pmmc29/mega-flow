@@ -301,7 +301,7 @@ app.post("/api/projects/tone", async (req, res) => {
 });
 
 app.post("/api/script/generate", async (req, res) => {
-  const { topic, durationSeconds, tone, customInstructions } = req.body ?? {};
+  const { topic, durationSeconds, tone, customInstructions, includedModules } = req.body ?? {};
   if (!topic || typeof topic !== "string" || !topic.trim()) {
     res.status(400).json({ error: "Escribe un tema o idea para armar el prompt." });
     return;
@@ -320,6 +320,12 @@ app.post("/api/script/generate", async (req, res) => {
   }
 
   const formats = await getProjectFormatState(paths.root);
+  const validModules = Array.isArray(includedModules)
+    ? includedModules.filter((m): m is "guion_limpio" | "elevenlabs" | "remotion" | "storyboard" =>
+        ["guion_limpio", "elevenlabs", "remotion", "storyboard"].includes(String(m)),
+      )
+    : undefined;
+
   const prompt = buildRetentionScriptPrompt(
     {
       topic: topic.trim(),
@@ -328,6 +334,7 @@ app.post("/api/script/generate", async (req, res) => {
       customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
     },
     formats.effective,
+    validModules,
   );
 
   res.json({ ok: true, prompt });
@@ -391,8 +398,10 @@ app.post("/api/script/import-bundle", async (req, res) => {
     const bundle = parseUnifiedScriptBundle(content);
     const { meta, paths } = await getActiveProject();
 
-    await fsp.mkdir(path.dirname(paths.script), { recursive: true });
-    await fsp.writeFile(paths.script, bundle.cleanScript, "utf-8");
+    if (bundle.cleanScript) {
+      await fsp.mkdir(path.dirname(paths.script), { recursive: true });
+      await fsp.writeFile(paths.script, bundle.cleanScript, "utf-8");
+    }
 
     if (bundle.elevenlabsScript) {
       await fsp.mkdir(path.dirname(paths.scriptElevenLabs), { recursive: true });
@@ -417,7 +426,7 @@ app.post("/api/script/import-bundle", async (req, res) => {
       const requested = Number(durationSeconds);
       if (Number.isFinite(requested) && requested > 0) {
         await updateProjectDuration(meta.slug, requested);
-      } else {
+      } else if (bundle.cleanScript) {
         const words = bundle.cleanScript.split(/\s+/).filter(Boolean).length;
         await updateProjectDuration(meta.slug, Math.max(20, Math.round((words / 140) * 60)));
       }

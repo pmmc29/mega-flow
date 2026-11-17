@@ -722,11 +722,27 @@ function setupScriptGenerator() {
   const btn = $("#btn-generate-script");
   const copyPromptBtn = $("#btn-copy-prompt");
   const closePromptBtn = $("#btn-close-prompt");
+  const selectAllBtn = $("#btn-master-select-all");
+
+  selectAllBtn?.addEventListener("click", () => {
+    form.querySelectorAll('input[name="master-module"]').forEach((cb) => {
+      cb.checked = true;
+    });
+  });
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const topic = $("#gen-topic").value.trim();
     if (!topic) return;
+
+    const includedModules = Array.from(
+      form.querySelectorAll('input[name="master-module"]:checked'),
+    ).map((cb) => cb.value);
+
+    if (includedModules.length === 0) {
+      showToast("Selecciona al menos un módulo para el Prompt Maestro", true);
+      return;
+    }
 
     const durationSeconds = Number($("#gen-duration").value) || 45;
     const tone = $("#gen-tone").value;
@@ -739,7 +755,13 @@ function setupScriptGenerator() {
       const res = await fetch("/api/script/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, durationSeconds, tone, customInstructions }),
+        body: JSON.stringify({
+          topic,
+          durationSeconds,
+          tone,
+          customInstructions,
+          includedModules,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -1459,13 +1481,22 @@ function renderInputsSummaryAndVisibility(data) {
   const cardGenerator = $("#card-generator");
   const cardScript = $("#card-script");
   const cardCharacter = $("#card-character");
+  const cardVoiceover = $("#card-voiceover");
+  const optionalDrawer = $("#optional-assets-drawer");
   const toggleBtn = $("#btn-toggle-4in1-cards");
 
+  const showSummary = bundleComplete || hasClean || hasStoryboard;
   const shouldHide4in1 = bundleComplete && !forceShow4in1Cards;
   if (cardGenerator) cardGenerator.classList.toggle("hidden", shouldHide4in1);
   if (cardScript) cardScript.classList.toggle("hidden", shouldHide4in1);
   if (cardCharacter) {
     cardCharacter.classList.toggle("hidden", shouldHide4in1 && hasCharacter);
+  }
+  if (cardVoiceover) {
+    cardVoiceover.classList.toggle("hidden", !showSummary);
+  }
+  if (optionalDrawer) {
+    optionalDrawer.classList.toggle("hidden", !showSummary);
   }
   if (toggleBtn) {
     toggleBtn.textContent = forceShow4in1Cards
@@ -1473,7 +1504,6 @@ function renderInputsSummaryAndVisibility(data) {
       : "Mostrar importador 4 en 1";
   }
 
-  const showSummary = bundleComplete || hasClean || hasStoryboard;
   if (summaryCard) {
     summaryCard.classList.toggle("hidden", !showSummary);
   }
@@ -1655,13 +1685,20 @@ function buildModuleEditorHtml(moduleMeta, formatObj, scope) {
   `;
 }
 
-function renderModularConfigs(data) {
+function isEditingInside(container) {
+  if (!container) return false;
+  const active = document.activeElement;
+  if (!active || !container.contains(active)) return false;
+  return active.tagName === "TEXTAREA" || active.tagName === "INPUT";
+}
+
+function renderModularConfigs(data, force = false) {
   const modules = data.formatModules || [];
   const formatsState = data.formats;
   if (!formatsState || modules.length === 0) return;
 
   const projectList = $("#project-config-list");
-  if (projectList && !projectList.contains(document.activeElement)) {
+  if (projectList && (force || !isEditingInside(projectList))) {
     projectList.innerHTML = modules
       .map((m) => {
         const isOpen = openProjectFormatModules.has(m.key);
@@ -1705,7 +1742,7 @@ function renderModularConfigs(data) {
   }
 
   const globalList = $("#global-config-list");
-  if (globalList && !globalList.contains(document.activeElement)) {
+  if (globalList && (force || !isEditingInside(globalList))) {
     globalList.innerHTML = modules
       .map((m) => {
         const isOpen = openGlobalFormatModules.has(m.key);
@@ -1757,7 +1794,7 @@ function setupModularConfigHandlers() {
       const set = scope === "project" ? openProjectFormatModules : openGlobalFormatModules;
       if (set.has(moduleKey)) set.delete(moduleKey);
       else set.add(moduleKey);
-      if (latestStatus) renderModularConfigs(latestStatus);
+      if (latestStatus) renderModularConfigs(latestStatus, true);
       return;
     }
 
@@ -1798,6 +1835,7 @@ function setupModularConfigHandlers() {
             : "Formato global actualizado (el Prompt Maestro usará este cambio)",
         );
         await fetchStatus();
+        if (latestStatus) renderModularConfigs(latestStatus, true);
       } finally {
         saveBtn.disabled = false;
       }
@@ -1823,6 +1861,7 @@ function setupModularConfigHandlers() {
         scope === "project" ? "Sección restaurada a Config. Global" : "Módulo global restaurado",
       );
       await fetchStatus();
+      if (latestStatus) renderModularConfigs(latestStatus, true);
       return;
     }
 
@@ -1841,6 +1880,7 @@ function setupModularConfigHandlers() {
         bundleDirty = false;
         showToast("Sección limpiada del proyecto");
         await fetchStatus();
+        if (latestStatus) renderModularConfigs(latestStatus, true);
       } finally {
         cleanBtn.disabled = false;
       }

@@ -1521,3 +1521,40 @@ code {
     white-space: nowrap;
   }
 }
+
+.gen-field-modules {
+  grid-column: 1 / -1;
+}
+
+.modules-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.master-modules-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.module-check-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border-hairline);
+  background: var(--bg-subtle);
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.module-check-pill input {
+  accent-color: var(--ink-primary);
+  cursor: pointer;
+}

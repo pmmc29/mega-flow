@@ -236,6 +236,33 @@
               />
             </div>
 
+            <div class="gen-field gen-field-modules">
+              <div class="modules-label-row">
+                <label>Módulos a incluir en el Prompt Maestro</label>
+                <button type="button" class="btn btn-ghost btn-xs" id="btn-master-select-all">
+                  Seleccionar todos
+                </button>
+              </div>
+              <div class="master-modules-selector" id="master-modules-selector">
+                <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="guion_limpio" checked />
+                  <span>1. Guion Limpio</span>
+                </label>
+                <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="elevenlabs" checked />
+                  <span>2. ElevenLabs</span>
+                </label>
+                <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="remotion" checked />
+                  <span>3. Remotion JSON</span>
+                </label>
+                <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="storyboard" checked />
+                  <span>4. Storyboard JSON</span>
+                </label>
+              </div>
+            </div>
+
             <div class="gen-submit">
               <button type="submit" class="btn btn-primary" id="btn-generate-script">
                 Generar Prompt
@@ -416,7 +443,7 @@
         </div>
 
         <!-- Assets opcionales de marca -->
-        <details class="optional-drawer">
+        <details class="optional-drawer" id="optional-assets-drawer">
           <summary>
             <span>Assets de marca opcionales</span>
             <span class="drawer-hint">Música de fondo y marca de agua para el renderizado final</span>
@@ -526,22 +553,8 @@
         <div class="card run-card">
           <div class="run-actions">
             <button type="button" class="btn btn-primary btn-lg" id="btn-run-all" data-run="all">
-              Ejecutar Pipeline Completo (1 → 4)
+              Renderizar Video
             </button>
-            <div class="step-buttons">
-              <button type="button" class="btn btn-secondary" data-run="transcribe">
-                1. Transcribir Audio
-              </button>
-              <button type="button" class="btn btn-secondary" data-run="direct">
-                2. Dirigir Escenas
-              </button>
-              <button type="button" class="btn btn-secondary" data-run="images">
-                3. Generar Imágenes
-              </button>
-              <button type="button" class="btn btn-secondary" data-run="render">
-                4. Renderizar Video
-              </button>
-            </div>
           </div>
 
           <div class="console-wrap">
