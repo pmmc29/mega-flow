@@ -655,7 +655,13 @@ async function uploadAsset(assetKey, file) {
     return;
   }
   resetAssetPreviewCache(assetKey);
-  showToast(`Archivo guardado (${formatBytes(json.size)})`);
+  if (assetKey === "voiceover" && json.syncedStoryboard && json.voiceoverDuration) {
+    showToast(`Audio guardado y storyboard sincronizado (${Number(json.voiceoverDuration).toFixed(1)}s)`);
+  } else if (assetKey === "voiceover" && json.voiceoverDuration) {
+    showToast(`Audio guardado y transcrito (${Number(json.voiceoverDuration).toFixed(1)}s)`);
+  } else {
+    showToast(`Archivo guardado (${formatBytes(json.size)})`);
+  }
   await fetchStatus();
 }
 
@@ -745,7 +751,7 @@ function setupScriptGenerator() {
     }
 
     const durationSeconds = Number($("#gen-duration").value) || 45;
-    const tone = $("#gen-tone").value;
+    const hasCharacter = $("#gen-has-character")?.value !== "false";
     const customInstructions = $("#gen-custom").value.trim();
 
     btn.disabled = true;
@@ -758,7 +764,7 @@ function setupScriptGenerator() {
         body: JSON.stringify({
           topic,
           durationSeconds,
-          tone,
+          hasCharacter,
           customInstructions,
           includedModules,
         }),
@@ -786,18 +792,6 @@ function setupScriptGenerator() {
 
   closePromptBtn.addEventListener("click", () => {
     $("#prompt-output-wrap").classList.add("hidden");
-  });
-
-  $("#gen-tone").addEventListener("change", async (e) => {
-    const tone = e.target.value;
-    const res = await fetch("/api/projects/tone", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ tone }),
-    });
-    if (res.ok) {
-      showToast(`Tono del proyecto: ${tone}`);
-    }
   });
 }
 
@@ -1590,18 +1584,21 @@ const MODULE_FIELD_SPECS = {
     { key: "notes", label: "Notas / Reglas para Storyboard", rows: 5 },
   ],
   flow_visual: [
-    { key: "styleAnchor", label: "Ancla de Estilo Visual (STYLE_ANCHOR)", rows: 3 },
-    { key: "characterPrefix", label: "Prefijo de Consistencia de Personaje", rows: 2 },
+    { key: "promptRules", label: "Instrucciones en Prompt Maestro (=== FLOW_VISUAL ===)", rows: 4 },
+    { key: "styleAnchor", label: "Ancla de Estilo Visual (generado/actual)", rows: 3 },
+    { key: "characterPrefix", label: "Prefijo de Consistencia de Personaje (generado/actual)", rows: 2 },
   ],
   musica: [
-    { key: "template", label: "Plantilla de Prompt Musical", rows: 4 },
-    { key: "moodsJson", label: "Moods por Tono (JSON)", rows: 6 },
+    { key: "promptRules", label: "Instrucciones en Prompt Maestro (=== MUSICA_PROMPT ===)", rows: 4 },
+    { key: "template", label: "Prompt Musical (generado/actual)", rows: 4 },
+    { key: "moodsJson", label: "Moods por Tono (respaldo JSON)", rows: 6 },
   ],
 };
 
 function getProjectSectionStatus(moduleKey, data) {
   const files = data.files || {};
   const outputs = data.outputs || {};
+  const customized = data.formats?.customized || {};
   switch (moduleKey) {
     case "guion_limpio": {
       const ok = Boolean(files.script?.exists && files.script.content?.trim());
@@ -1624,14 +1621,15 @@ function getProjectSectionStatus(moduleKey, data) {
     }
     case "flow_visual": {
       const count = (outputs.scenes || []).length;
-      return { applied: count > 0, label: count > 0 ? `${count} escenas generadas` : "Sin escenas" };
+      if (count > 0) return { applied: true, label: `${count} escenas generadas` };
+      if (customized.flow_visual) return { applied: true, label: "Estilo a medida guardado" };
+      return { applied: false, label: "Sin escenas" };
     }
     case "musica": {
       const ok = Boolean(files.bgMusic?.exists && files.bgMusic.scope === "project");
-      return {
-        applied: ok,
-        label: ok ? `Aplicado (${formatBytes(files.bgMusic.size)})` : "Opcional / Sin pista",
-      };
+      if (ok) return { applied: true, label: `Aplicado (${formatBytes(files.bgMusic.size)})` };
+      if (customized.musica) return { applied: true, label: "Prompt a medida guardado" };
+      return { applied: false, label: "Opcional / Sin pista" };
     }
     default:
       return { applied: false, label: "Plantilla base" };

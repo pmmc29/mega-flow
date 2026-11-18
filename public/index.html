@@ -218,21 +218,19 @@
             </div>
 
             <div class="gen-field">
-              <label for="gen-tone">Tono</label>
-              <select id="gen-tone">
-                <option value="curioso y dinámico" selected>Curioso y dinámico</option>
-                <option value="misterio y urgencia">Misterio / Urgencia</option>
-                <option value="educativo cercano">Educativo cercano</option>
-                <option value="humorístico e irónico">Humorístico / Irónico</option>
+              <label for="gen-has-character">Personaje anfitrión</label>
+              <select id="gen-has-character">
+                <option value="true" selected>Con personaje (character_ref)</option>
+                <option value="false">Sin personaje (solo escenas)</option>
               </select>
             </div>
 
             <div class="gen-field gen-field-custom">
-              <label for="gen-custom">Ajustes opcionales</label>
+              <label for="gen-custom">Notas / Estilo deseado (opcional)</label>
               <input
                 id="gen-custom"
                 type="text"
-                placeholder="Ej. Usa una analogía con videojuegos, público principiante..."
+                placeholder="Ej. Usa una analogía con videojuegos, estética cyberpunk..."
               />
             </div>
 
@@ -257,8 +255,16 @@
                   <span>3. Remotion JSON</span>
                 </label>
                 <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="flow_visual" checked />
+                  <span>4. Flow Visual</span>
+                </label>
+                <label class="module-check-pill">
+                  <input type="checkbox" name="master-module" value="musica" checked />
+                  <span>5. Música Prompt</span>
+                </label>
+                <label class="module-check-pill">
                   <input type="checkbox" name="master-module" value="storyboard" checked />
-                  <span>4. Storyboard JSON</span>
+                  <span>6. Storyboard JSON</span>
                 </label>
               </div>
             </div>
@@ -293,23 +299,24 @@
         </article>
 
         <div class="input-grid">
-          <!-- Tarjeta 1: Guion y Dirección (4 en 1) -->
+          <!-- Tarjeta 1: Bloque Maestro (6 en 1) -->
           <article class="card card-script" id="card-script">
             <div class="card-head">
               <div>
                 <div class="card-title-row">
-                  <h3>Guion y Dirección (4 en 1)</h3>
+                  <h3>Bloque Maestro (6 en 1)</h3>
                   <span class="badge badge-required">Requerido</span>
                 </div>
-                <code class="file-path" id="script-file-label">input/script.txt · workspace/</code>
+                <code class="file-path" id="script-file-label">input/script.txt · workspace/ · formats.json</code>
               </div>
               <span class="file-state" id="state-script">Pendiente</span>
             </div>
 
             <p class="card-help">
               Pega en un solo bloque el resultado de tu agente IA (<code>=== GUION_LIMPIO ===</code>,
-              <code>=== ELEVENLABS ===</code>, <code>=== REMOTION_JSON ===</code> y
-              <code>=== STORYBOARD_JSON ===</code>) para guardar todo de una vez.
+              <code>=== ELEVENLABS ===</code>, <code>=== REMOTION_JSON ===</code>,
+              <code>=== FLOW_VISUAL ===</code>, <code>=== MUSICA_PROMPT ===</code> y
+              <code>=== STORYBOARD_JSON ===</code>) para aplicar todo a la medida del proyecto.
             </p>
 
             <div class="editor-wrap" id="script-panel-bundle">

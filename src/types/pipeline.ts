@@ -27,13 +27,20 @@ export interface Storyboard {
   scenes: Scene[];
 }
 
-export type MasterPromptModuleKey = "guion_limpio" | "elevenlabs" | "remotion" | "storyboard";
+export type MasterPromptModuleKey =
+  | "guion_limpio"
+  | "elevenlabs"
+  | "remotion"
+  | "flow_visual"
+  | "musica"
+  | "storyboard";
 
 export interface ScriptGenerationOptions {
   topic: string;
   durationSeconds: number;
-  tone: string;
+  tone?: string;
   customInstructions?: string;
+  hasCharacter?: boolean;
   includeModules?: MasterPromptModuleKey[];
 }
 

@@ -301,36 +301,51 @@ app.post("/api/projects/tone", async (req, res) => {
 });
 
 app.post("/api/script/generate", async (req, res) => {
-  const { topic, durationSeconds, tone, customInstructions, includedModules } = req.body ?? {};
+  const { topic, durationSeconds, tone, customInstructions, hasCharacter, includedModules } =
+    req.body ?? {};
   if (!topic || typeof topic !== "string" || !topic.trim()) {
     res.status(400).json({ error: "Escribe un tema o idea para armar el prompt." });
     return;
   }
 
   const resolvedTone =
-    typeof tone === "string" && tone.trim() ? tone.trim() : "curioso y dinámico";
+    typeof tone === "string" && tone.trim() ? tone.trim() : "deducido del tema";
   const resolvedDuration = Number(durationSeconds) || 45;
 
   const { meta, paths } = await getActiveProject();
   try {
-    await updateProjectTone(meta.slug, resolvedTone);
+    if (typeof tone === "string" && tone.trim()) {
+      await updateProjectTone(meta.slug, resolvedTone);
+    }
     await updateProjectDuration(meta.slug, resolvedDuration);
   } catch {
     // Non-fatal if project metadata update fails
   }
 
   const formats = await getProjectFormatState(paths.root);
+  const allowedModules = [
+    "guion_limpio",
+    "elevenlabs",
+    "remotion",
+    "flow_visual",
+    "musica",
+    "storyboard",
+  ] as const;
   const validModules = Array.isArray(includedModules)
-    ? includedModules.filter((m): m is "guion_limpio" | "elevenlabs" | "remotion" | "storyboard" =>
-        ["guion_limpio", "elevenlabs", "remotion", "storyboard"].includes(String(m)),
+    ? includedModules.filter((m): m is (typeof allowedModules)[number] =>
+        (allowedModules as readonly string[]).includes(String(m)),
       )
     : undefined;
+
+  const resolvedHasCharacter =
+    typeof hasCharacter === "boolean" ? hasCharacter : fs.existsSync(PATHS.characterRef);
 
   const prompt = buildRetentionScriptPrompt(
     {
       topic: topic.trim(),
       durationSeconds: resolvedDuration,
       tone: resolvedTone,
+      hasCharacter: resolvedHasCharacter,
       customInstructions: typeof customInstructions === "string" ? customInstructions : undefined,
     },
     formats.effective,
@@ -411,6 +426,14 @@ app.post("/api/script/import-bundle", async (req, res) => {
     if (bundle.remotionStyle) {
       await fsp.mkdir(path.dirname(paths.remotionStyle), { recursive: true });
       await fsp.writeFile(paths.remotionStyle, bundle.remotionStyle, "utf-8");
+    }
+
+    if (bundle.flowVisual && (bundle.flowVisual.styleAnchor || bundle.flowVisual.characterPrefix)) {
+      await saveProjectFormatModule(paths.root, "flow_visual", bundle.flowVisual);
+    }
+
+    if (bundle.musicPrompt) {
+      await saveProjectFormatModule(paths.root, "musica", { template: bundle.musicPrompt });
     }
 
     if (bundle.storyboard) {
@@ -501,6 +524,12 @@ app.post("/api/upload/script", upload.single("file"), async (req, res) => {
   }
 });
 
+function withMusicBuffer(baseSeconds: number): number {
+  const clean = Math.max(10, Math.round(baseSeconds));
+  const buffer = Math.max(12, Math.round(clean * 0.25));
+  return Math.min(600, clean + buffer);
+}
+
 async function resolveTargetMusicDuration(options: {
   meta: { durationSeconds?: number };
   paths: { voiceover: string; timestamps: string };
@@ -511,14 +540,14 @@ async function resolveTargetMusicDuration(options: {
     const measured = await getAudioDurationSeconds(options.paths.voiceover);
     if (measured && measured > 0) {
       return {
-        durationSeconds: Math.max(10, Math.min(600, Math.round(measured))),
+        durationSeconds: withMusicBuffer(measured),
         source: "voiceover",
       };
     }
     const ts = await readJsonSafe<{ duration?: number }>(options.paths.timestamps);
     if (ts?.duration && ts.duration > 0) {
       return {
-        durationSeconds: Math.max(10, Math.min(600, Math.round(ts.duration))),
+        durationSeconds: withMusicBuffer(ts.duration),
         source: "voiceover",
       };
     }
@@ -526,7 +555,7 @@ async function resolveTargetMusicDuration(options: {
 
   if (options.meta.durationSeconds && options.meta.durationSeconds > 0) {
     return {
-      durationSeconds: Math.max(10, Math.min(600, Math.round(options.meta.durationSeconds))),
+      durationSeconds: withMusicBuffer(options.meta.durationSeconds),
       source: "project",
     };
   }
@@ -535,8 +564,9 @@ async function resolveTargetMusicDuration(options: {
   const estimatedFromScript = Math.max(20, Math.round((words / 140) * 60));
   const requested = Number(options.requestedDurationSeconds);
   return {
-    durationSeconds:
-      Number.isFinite(requested) && requested > 0 ? Math.round(requested) : estimatedFromScript,
+    durationSeconds: withMusicBuffer(
+      Number.isFinite(requested) && requested > 0 ? requested : estimatedFromScript,
+    ),
     source: "estimated",
   };
 }
@@ -625,28 +655,9 @@ app.post("/api/music/generate-acestep", async (req, res) => {
   const { topic, durationSeconds, tone, prompt: customPrompt } = req.body ?? {};
   try {
     const { meta, paths } = await getActiveProject();
-    if (!fs.existsSync(paths.script)) {
-      res.status(400).json({
-        error: "Primero aplica y guarda el guion y estilo 3 en 1.",
-      });
-      return;
-    }
-
-    const scriptText = (await fsp.readFile(paths.script, "utf-8")).trim();
-    if (!scriptText) {
-      res.status(400).json({
-        error: "El guion está vacío. Primero aplica y guarda el guion y estilo 3 en 1.",
-      });
-      return;
-    }
-
-    if (!fs.existsSync(paths.voiceover)) {
-      res.status(400).json({
-        error:
-          "Primero sube el audio de ElevenLabs para generar la música con la duración exacta de la locución.",
-      });
-      return;
-    }
+    const scriptText = fs.existsSync(paths.script)
+      ? (await fsp.readFile(paths.script, "utf-8")).trim()
+      : "";
 
     const remotionStyle = await readJsonSafe<{
       hook_badge?: string;
@@ -657,7 +668,7 @@ app.post("/api/music/generate-acestep", async (req, res) => {
     const resolvedDuration = await resolveTargetMusicDuration({
       meta,
       paths,
-      scriptText,
+      scriptText: scriptText || meta.name,
       requestedDurationSeconds: durationSeconds,
     });
 
@@ -668,7 +679,7 @@ app.post("/api/music/generate-acestep", async (req, res) => {
         : buildMusicPrompt(
             {
               topic: typeof topic === "string" && topic.trim() ? topic.trim() : meta.name,
-              scriptText,
+              scriptText: scriptText || meta.name,
               durationSeconds: resolvedDuration.durationSeconds,
               tone: typeof tone === "string" && tone.trim() ? tone.trim() : meta.tone,
               remotionStyle,
@@ -677,7 +688,7 @@ app.post("/api/music/generate-acestep", async (req, res) => {
           );
 
     appendLog(
-      `[ACE-Step] Generando música (${resolvedDuration.durationSeconds}s) para "${meta.name}"...`,
+      `[ACE-Step] Generando música (${resolvedDuration.durationSeconds}s con colchón) para "${meta.name}"...`,
     );
     const result = await generateAceStepMusic({
       prompt: resolvedPrompt,
@@ -734,14 +745,32 @@ app.post("/api/upload/:assetType", upload.single("file"), async (req, res) => {
     const targetPath = await resolveAssetPath(assetType);
     await fsp.mkdir(path.dirname(targetPath), { recursive: true });
     await fsp.writeFile(targetPath, req.file.buffer);
+
+    let voiceoverDuration: number | undefined;
+    let syncedStoryboard = false;
+
     if (assetType === "voiceover" || assetType === "bgMusic") {
       const { meta, paths } = await getActiveProject();
-      if (assetType === "voiceover" && fs.existsSync(paths.timestamps)) {
-        await fsp.unlink(paths.timestamps);
+      if (assetType === "voiceover") {
+        if (fs.existsSync(paths.timestamps)) {
+          await fsp.unlink(paths.timestamps);
+        }
+        try {
+          const ts = await transcribeVoiceover(paths.voiceover, paths.timestamps, paths.script);
+          voiceoverDuration = ts.duration;
+          if (fs.existsSync(paths.storyboard) && ts.duration > 0) {
+            await syncStoryboardToDuration(paths.storyboard, ts.duration);
+            syncedStoryboard = true;
+          }
+        } catch (syncErr) {
+          appendLog(
+            `[Voiceover] Aviso al auto-sincronizar: ${syncErr instanceof Error ? syncErr.message : syncErr}`,
+          );
+        }
       }
       await touchProject(meta.slug);
     }
-    res.json({ ok: true, size: req.file.size });
+    res.json({ ok: true, size: req.file.size, voiceoverDuration, syncedStoryboard });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : "Error al guardar el archivo" });
   }

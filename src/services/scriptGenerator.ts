@@ -14,12 +14,16 @@ export type MasterPromptModuleKey =
   | "guion_limpio"
   | "elevenlabs"
   | "remotion"
+  | "flow_visual"
+  | "musica"
   | "storyboard";
 
 const ALL_MASTER_MODULES: MasterPromptModuleKey[] = [
   "guion_limpio",
   "elevenlabs",
   "remotion",
+  "flow_visual",
+  "musica",
   "storyboard",
 ];
 
@@ -37,8 +41,16 @@ export function buildRetentionScriptPrompt(
   const targetWords = Math.round((options.durationSeconds / 60) * 140);
   const approxScenes = Math.max(4, Math.round(options.durationSeconds / 4));
   const midEndSeconds = Math.max(20, options.durationSeconds - 10);
+  const musicDurationSeconds = Math.max(
+    options.durationSeconds + 15,
+    Math.round(options.durationSeconds * 1.25),
+  );
+  const characterStatus =
+    options.hasCharacter === false
+      ? "No hay personaje anfitrión (usa use_character: false en todas las escenas)"
+      : "Sí, hay personaje de referencia cargado (usa use_character: true en las escenas donde aparezca el anfitrión)";
   const customLine = options.customInstructions?.trim()
-    ? `- Instrucciones adicionales: ${options.customInstructions.trim()}`
+    ? `- Notas / Estilo deseado: ${options.customInstructions.trim()}`
     : "";
 
   const vars = {
@@ -47,7 +59,9 @@ export function buildRetentionScriptPrompt(
     targetWords,
     approxScenes,
     midEndSeconds,
-    tone: options.tone,
+    musicDurationSeconds,
+    characterStatus,
+    tone: options.tone || "deducido del tema",
     customInstructions: customLine,
   };
 
@@ -87,6 +101,27 @@ export function buildRetentionScriptPrompt(
       "",
     );
   }
+  if (activeSet.has("flow_visual")) {
+    parts.push(
+      "=== FLOW_VISUAL ===",
+      JSON.stringify(
+        {
+          styleAnchor: "Global visual art style anchor in English tailored to the topic...",
+          characterPrefix: "Character consistency integration prefix in English...",
+        },
+        null,
+        2,
+      ),
+      "",
+    );
+  }
+  if (activeSet.has("musica")) {
+    parts.push(
+      "=== MUSICA_PROMPT ===",
+      `(Prompt instrumental en inglés para ACE-Step 1.5, duración mínima ~${musicDurationSeconds}s, sin comillas ni JSON)`,
+      "",
+    );
+  }
   if (activeSet.has("storyboard")) {
     parts.push(
       "=== STORYBOARD_JSON ===",
@@ -102,6 +137,12 @@ export function buildRetentionScriptPrompt(
 
   if (activeSet.has("remotion")) {
     parts.push("", applyTemplateVars(formats.remotion.notes, vars));
+  }
+  if (activeSet.has("flow_visual")) {
+    parts.push("", applyTemplateVars(formats.flow_visual.promptRules, vars));
+  }
+  if (activeSet.has("musica")) {
+    parts.push("", applyTemplateVars(formats.musica.promptRules, vars));
   }
   if (activeSet.has("storyboard")) {
     parts.push("", applyTemplateVars(formats.storyboard.notes, vars));
@@ -135,6 +176,11 @@ export interface UnifiedScriptBundle {
   cleanScript: string;
   elevenlabsScript: string;
   remotionStyle: string;
+  flowVisual?: {
+    styleAnchor?: string;
+    characterPrefix?: string;
+  };
+  musicPrompt?: string;
   storyboard?: string;
 }
 
@@ -210,21 +256,33 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
   const cleanHeader = /^[#*\s-]*===\s*(?:1\.\s*)?GUION[_\s]+LIMPIO[^\n=]*===[*\s]*$/im;
   const elevenHeader = /^[#*\s-]*===\s*(?:2\.\s*)?(?:GUION\s+)?ELEVENLABS[^\n=]*===[*\s]*$/im;
   const remotionHeader = /^[#*\s-]*===\s*(?:3\.\s*)?(?:REMOTION[^\n=]*|DIRECCI[ÓO]N\s+VISUAL[^\n=]*)===[*\s]*$/im;
-  const storyboardHeader = /^[#*\s-]*===\s*(?:4\.\s*)?STORYBOARD[^\n=]*===[*\s]*$/im;
+  const flowHeader = /^[#*\s-]*===\s*(?:4\.\s*)?FLOW[_\s]+VISUAL[^\n=]*===[*\s]*$/im;
+  const musicHeader = /^[#*\s-]*===\s*(?:5\.\s*)?MUSICA[_\s]+PROMPT[^\n=]*===[*\s]*$/im;
+  const storyboardHeader = /^[#*\s-]*===\s*(?:[46]\.\s*)?STORYBOARD[^\n=]*===[*\s]*$/im;
 
   const cleanMatch = cleanHeader.exec(text);
   const elevenMatch = elevenHeader.exec(text);
   const remotionMatch = remotionHeader.exec(text);
+  const flowMatch = flowHeader.exec(text);
+  const musicMatch = musicHeader.exec(text);
   const storyboardMatch = storyboardHeader.exec(text);
 
-  if (!cleanMatch && !elevenMatch && !remotionMatch && !storyboardMatch) {
+  if (
+    !cleanMatch &&
+    !elevenMatch &&
+    !remotionMatch &&
+    !flowMatch &&
+    !musicMatch &&
+    !storyboardMatch
+  ) {
     throw new Error(
-      "No se encontraron los separadores === GUION_LIMPIO ===, === ELEVENLABS ===, === REMOTION_JSON === y === STORYBOARD_JSON ===.",
+      "No se encontraron los separadores (=== GUION_LIMPIO ===, === ELEVENLABS ===, === REMOTION_JSON ===, === FLOW_VISUAL ===, === MUSICA_PROMPT ===, === STORYBOARD_JSON ===).",
     );
   }
 
+  type SectionKey = "clean" | "eleven" | "remotion" | "flow" | "music" | "storyboard";
   const sections: Array<{
-    key: "clean" | "eleven" | "remotion" | "storyboard";
+    key: SectionKey;
     start: number;
     endOfHeader: number;
   }> = [];
@@ -249,6 +307,20 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
       endOfHeader: remotionMatch.index + remotionMatch[0].length,
     });
   }
+  if (flowMatch) {
+    sections.push({
+      key: "flow",
+      start: flowMatch.index,
+      endOfHeader: flowMatch.index + flowMatch[0].length,
+    });
+  }
+  if (musicMatch) {
+    sections.push({
+      key: "music",
+      start: musicMatch.index,
+      endOfHeader: musicMatch.index + musicMatch[0].length,
+    });
+  }
   if (storyboardMatch) {
     sections.push({
       key: "storyboard",
@@ -259,10 +331,12 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
 
   sections.sort((a, b) => a.start - b.start);
 
-  const extracted: Record<"clean" | "eleven" | "remotion" | "storyboard", string> = {
+  const extracted: Record<SectionKey, string> = {
     clean: "",
     eleven: "",
     remotion: "",
+    flow: "",
+    music: "",
     storyboard: "",
   };
 
@@ -272,7 +346,14 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     extracted[curr.key] = text.slice(curr.endOfHeader, nextStart).trim();
   }
 
-  if (!extracted.clean && !extracted.eleven && !extracted.remotion && !extracted.storyboard) {
+  if (
+    !extracted.clean &&
+    !extracted.eleven &&
+    !extracted.remotion &&
+    !extracted.flow &&
+    !extracted.music &&
+    !extracted.storyboard
+  ) {
     throw new Error("El bloque pegado no contiene contenido en ninguna de las secciones.");
   }
 
@@ -299,6 +380,42 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     formattedRemotion = JSON.stringify(parsed, null, 2);
   }
 
+  let parsedFlowVisual: { styleAnchor?: string; characterPrefix?: string } | undefined;
+  if (extracted.flow) {
+    const rawFlowJson = extracted.flow
+      .replace(/^```(?:json)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .trim();
+    let parsedFlow: unknown;
+    try {
+      parsedFlow = JSON.parse(rawFlowJson);
+    } catch {
+      throw new Error(
+        "La sección === FLOW_VISUAL === no contiene un JSON válido. Revisa llaves, comillas y comas.",
+      );
+    }
+    if (!parsedFlow || typeof parsedFlow !== "object" || Array.isArray(parsedFlow)) {
+      throw new Error("La sección === FLOW_VISUAL === debe ser un objeto JSON { ... }.");
+    }
+    const obj = parsedFlow as Record<string, unknown>;
+    parsedFlowVisual = {};
+    if (typeof obj.styleAnchor === "string" && obj.styleAnchor.trim()) {
+      parsedFlowVisual.styleAnchor = obj.styleAnchor.trim();
+    }
+    if (typeof obj.characterPrefix === "string" && obj.characterPrefix.trim()) {
+      parsedFlowVisual.characterPrefix = obj.characterPrefix.trim();
+    }
+  }
+
+  let parsedMusicPrompt: string | undefined;
+  if (extracted.music) {
+    parsedMusicPrompt = extracted.music
+      .replace(/^```[a-zA-Z0-9_-]*\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .replace(/^["']|["']$/g, "")
+      .trim();
+  }
+
   let formattedStoryboard: string | undefined;
   if (extracted.storyboard) {
     const rawSbJson = extracted.storyboard
@@ -322,6 +439,8 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     cleanScript: extracted.clean,
     elevenlabsScript: extracted.eleven,
     remotionStyle: formattedRemotion,
+    flowVisual: parsedFlowVisual,
+    musicPrompt: parsedMusicPrompt,
     storyboard: formattedStoryboard,
   };
 }
@@ -340,6 +459,11 @@ export function buildMusicPrompt(
   },
   formats: ModularFormats = DEFAULT_GLOBAL_FORMATS,
 ): string {
+  const template = formats.musica.template?.trim() || DEFAULT_GLOBAL_FORMATS.musica.template;
+  if (!/\{\{\w+\}\}/.test(template)) {
+    return template;
+  }
+
   const tone = (options.tone || "curioso y dinámico").trim().toLowerCase();
   const words = options.scriptText.trim().split(/\s+/).filter(Boolean).length;
   const estimatedDuration =
@@ -362,7 +486,7 @@ export function buildMusicPrompt(
       ? ", slightly dark cinematic atmosphere"
       : "";
 
-  return applyTemplateVars(formats.musica.template, {
+  return applyTemplateVars(template, {
     durationSeconds: estimatedDuration,
     topic: options.topic.trim(),
     hookSnippet,

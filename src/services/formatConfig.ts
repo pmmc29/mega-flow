@@ -16,6 +16,8 @@ export type PromptIncludedModule =
   | "guion_limpio"
   | "elevenlabs"
   | "remotion"
+  | "flow_visual"
+  | "musica"
   | "storyboard";
 
 export interface PromptMaestroFormat {
@@ -46,11 +48,13 @@ export interface StoryboardFormat {
 }
 
 export interface FlowVisualFormat {
+  promptRules: string;
   styleAnchor: string;
   characterPrefix: string;
 }
 
 export interface MusicaFormat {
+  promptRules: string;
   template: string;
   moods: Record<string, string>;
 }
@@ -80,13 +84,13 @@ export const FORMAT_MODULE_META: Array<{
     key: "prompt_maestro",
     label: "Prompt Maestro (Base)",
     description:
-      "Rol, estructura de retención y reglas de salida. Ensambla automáticamente los módulos Guion Limpio, ElevenLabs, Remotion y Storyboard.",
+      "Rol, estructura de retención y reglas de salida. Ensambla automáticamente todos los módulos seleccionados a la medida del tema.",
     variables: [
       "{{topic}}",
       "{{durationSeconds}}",
       "{{targetWords}}",
       "{{approxScenes}}",
-      "{{tone}}",
+      "{{characterStatus}}",
       "{{customInstructions}}",
     ],
     hasProjectData: false,
@@ -95,64 +99,59 @@ export const FORMAT_MODULE_META: Array<{
     key: "guion_limpio",
     label: "1. Guion Limpio",
     description: "Formato y reglas del texto hablado limpio (=== GUION_LIMPIO ===).",
-    variables: ["{{durationSeconds}}", "{{targetWords}}", "{{tone}}"],
+    variables: ["{{durationSeconds}}", "{{targetWords}}"],
     hasProjectData: true,
   },
   {
     key: "elevenlabs",
     label: "2. ElevenLabs (v3 / v4)",
-    description: "Reglas y etiquetas emocionales/entonación (=== ELEVENLABS ===).",
-    variables: ["{{tone}}"],
+    description: "Reglas y etiquetas emocionales/entonación (=== ELEVENLABS ===) para generar el voiceover.",
+    variables: ["{{topic}}"],
     hasProjectData: true,
   },
   {
     key: "remotion",
     label: "3. Remotion JSON",
-    description: "Esquema visual y notas de estilo para Remotion (=== REMOTION_JSON ===).",
-    variables: ["{{tone}}", "{{durationSeconds}}"],
-    hasProjectData: true,
-  },
-  {
-    key: "storyboard",
-    label: "4. Storyboard JSON",
-    description: "Esquema de escenas, tiempos y prompts visuales (=== STORYBOARD_JSON ===).",
-    variables: ["{{approxScenes}}", "{{durationSeconds}}"],
+    description: "Esquema visual y reglas de estilo para Remotion (=== REMOTION_JSON ===).",
+    variables: ["{{durationSeconds}}"],
     hasProjectData: true,
   },
   {
     key: "flow_visual",
-    label: "5. Estilo Visual (Google Flow)",
+    label: "4. Estilo Visual (Google Flow)",
     description:
-      "Ancla de estilo global y prefijo de consistencia de personaje que se añaden a cada escena.",
-    variables: [],
+      "Instrucciones para que el Prompt Maestro genere styleAnchor y characterPrefix a medida, y valores actuales aplicados.",
+    variables: ["{{topic}}", "{{characterStatus}}"],
     hasProjectData: true,
   },
   {
     key: "musica",
-    label: "6. Música de Fondo (ACE-Step)",
-    description: "Plantilla de prompt musical y moods por tono para ACE-Step 1.5.",
-    variables: [
-      "{{topic}}",
-      "{{durationSeconds}}",
-      "{{hookSnippet}}",
-      "{{mood}}",
-      "{{atmosphereHint}}",
-      "{{pacingHint}}",
-    ],
+    label: "5. Música de Fondo (ACE-Step)",
+    description:
+      "Instrucciones para que el Prompt Maestro genere el prompt instrumental (>= duración + colchón) y prompt actual.",
+    variables: ["{{topic}}", "{{musicDurationSeconds}}"],
+    hasProjectData: true,
+  },
+  {
+    key: "storyboard",
+    label: "6. Storyboard JSON",
+    description: "Esquema de escenas, tiempos aproximados por palabras y prompts visuales (=== STORYBOARD_JSON ===).",
+    variables: ["{{approxScenes}}", "{{durationSeconds}}", "{{characterStatus}}"],
     hasProjectData: true,
   },
 ];
 
 export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
   prompt_maestro: {
-    includedModules: ["guion_limpio", "elevenlabs", "remotion", "storyboard"],
+    includedModules: ["guion_limpio", "elevenlabs", "remotion", "flow_visual", "musica", "storyboard"],
     roleIntro: [
-      'Actúa como un guionista experto en retención máxima y director visual para videos verticales cortos (YouTube Shorts, TikTok, Instagram Reels) del canal "Mega Studio".',
+      'Actúa como un guionista experto en retención máxima, director visual y productor musical para videos verticales cortos (YouTube Shorts, TikTok, Instagram Reels) del canal "Mega Studio".',
+      "A partir del tema, deduce automáticamente el tono narrativo, la estética visual, la dirección de arte y el estilo musical más efectivos para maximizar la retención.",
       "",
       "Datos del video:",
       "- Tema / Idea: {{topic}}",
       "- Duración objetivo: ~{{durationSeconds}} segundos (aproximadamente {{targetWords}} palabras a ritmo de locución normal ~140 palabras/min).",
-      "- Tono deseado: {{tone}}",
+      "- Personaje anfitrión: {{characterStatus}}",
       "{{customInstructions}}",
     ].join("\n"),
     retentionStructure: [
@@ -167,7 +166,7 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
       "Formato de respuesta OBLIGATORIO:",
       "- Devuelve TODA tu respuesta dentro de UN ÚNICO bloque de código (```text ... ```) para que pueda copiarlo con un solo clic.",
       "- No escribas explicaciones ni texto fuera de ese bloque.",
-      "- Dentro de ese único bloque, usa exactamente estos cuatro separadores en este orden:",
+      "- Dentro de ese único bloque, incluye únicamente los separadores de los módulos solicitados en este orden exacto:",
     ].join("\n"),
   },
   guion_limpio: {
@@ -183,7 +182,7 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
     placeholderHint:
       "(Exactamente el mismo texto hablado en español, pero con las etiquetas de audio [curious], [whispers], [laughs], etc. insertadas en los momentos clave)",
     tagGuide: [
-      "Reglas para la versión ElevenLabs v3 / v4:",
+      "Reglas para === ELEVENLABS === (v3 / v4):",
       "- Conserva exactamente las mismas palabras habladas en español de la versión limpia.",
       "- Inserta instrucciones breves entre corchetes en INGLÉS justo antes de la frase donde cambia la emoción, entonación o reacción:",
       "  - Emociones: [curious], [excited], [serious], [surprised], [mischievously], [worried], [confident]",
@@ -208,7 +207,7 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
       2,
     ),
     notes: [
-      'Notas para REMOTION_JSON (JSON válido sin comentarios, adaptado al tema, duración y tono "{{tone}}"):',
+      "Notas para === REMOTION_JSON === (JSON válido sin comentarios, diseñado a la medida del tema y su tono ideal):",
       '- "vignette": número entre 0 y 0.8 (0 = sin viñeta, 0.55 = ambiente oscuro/misterio).',
       '- "hook_shake" (true/false): vibración sutil en la escena 1 para frenar el scroll.',
       '- "scene_transitions": array opcional con una transición por escena ("cut", "fade", "slide_up", "zoom_punch").',
@@ -235,18 +234,29 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
       2,
     ),
     notes: [
-      "Notas para STORYBOARD_JSON (JSON válido sin comentarios):",
-      '- Divide el guion en ~{{approxScenes}} escenas secuenciales de 3.0 a 5.0 segundos cada una, cubriendo desde 0.0 hasta {{durationSeconds}}.0 segundos (el "end" de cada escena debe coincidir exactamente con el "start" de la siguiente).',
-      '- "use_character": true cuando la escena requiera reacción emocional, presentación o interacción del anfitrión; false para diagramas, objetos, escenarios o conceptos abstractos.',
-      '- "image_prompt": SIEMPRE en INGLÉS, muy descriptivo, sin texto dentro de la imagen y dejando espacio visual libre en el tercio inferior para los subtítulos.',
+      "Notas para === STORYBOARD_JSON === (JSON válido sin comentarios):",
+      '- Estima el tiempo de cada frase según su cantidad de palabras (~2.3 palabras/seg) y divide el guion en ~{{approxScenes}} escenas secuenciales de 3.0 a 5.0 segundos cada una, cubriendo desde 0.0 hasta {{durationSeconds}}.0 segundos (luego se re-sincronizará automáticamente con el audio real).',
+      '- "use_character": {{characterStatus}}. Pon true solo cuando la escena requiera reacción o presencia del anfitrión; false para diagramas, objetos o escenarios.',
+      '- "image_prompt": SIEMPRE en INGLÉS, muy descriptivo, coherente con el estilo definido en FLOW_VISUAL, sin texto dentro de la imagen y dejando espacio visual libre en el tercio inferior para los subtítulos.',
       '- "camera_motion": varía entre "zoom_in", "zoom_out", "pan_left", "pan_right".',
     ].join("\n"),
   },
   flow_visual: {
+    promptRules: [
+      "Notas para === FLOW_VISUAL === (JSON válido sin comentarios, en INGLÉS, diseñado específicamente para la atmósfera de \"{{topic}}\"):",
+      '- "styleAnchor": Ancla de estilo global en inglés (técnica de ilustración/render, iluminación, paleta cromática, composición vertical 9:16, sin texto embebido).',
+      '- "characterPrefix": Prefijo de consistencia en inglés que describe cómo debe integrarse el personaje de referencia en las escenas donde use_character=true (si no hay personaje, déjalo breve o genérico).',
+    ].join("\n"),
     styleAnchor: STYLE_ANCHOR,
     characterPrefix: CHARACTER_CONSISTENCY_PREFIX,
   },
   musica: {
+    promptRules: [
+      "Notas para === MUSICA_PROMPT === (texto plano en INGLÉS para ACE-Step 1.5, SIN JSON ni comillas):",
+      '- Describe una pista instrumental de al menos ~{{musicDurationSeconds}}s (incluye margen extra sobre la duración de la voz) diseñada a la medida de "{{topic}}".',
+      "- Incluye: género, atmósfera/emoción, instrumentos principales, BPM aproximado y mezcla limpia en frecuencias medias para no competir con la voz en español.",
+      "- Termina siempre indicando: NO vocals, NO lyrics, steady loopable groove.",
+    ].join("\n"),
     template: [
       'Instrumental background track (~{{durationSeconds}}s) for a vertical explainer video about "{{topic}}".',
       'Script opening context: "{{hookSnippet}}..."',
@@ -282,6 +292,10 @@ function mergeFormats(base: ModularFormats, override?: PartialModularFormats | n
       if (key === "musica") {
         const musicPatch = patch as Partial<MusicaFormat>;
         result.musica = {
+          promptRules:
+            typeof musicPatch.promptRules === "string"
+              ? musicPatch.promptRules
+              : result.musica.promptRules,
           template:
             typeof musicPatch.template === "string"
               ? musicPatch.template
