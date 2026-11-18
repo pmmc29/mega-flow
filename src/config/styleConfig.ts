@@ -47,6 +47,6 @@ export const STYLE_ANCHOR = [
 ].join(", ");
 
 export const CHARACTER_CONSISTENCY_PREFIX =
-  "Maintain exact character design, facial features, and outfit from the reference image. ";
+  "Keep the host character's facial features, hairstyle, and core identity from the reference image, rendered in the exact visual style of the scene and naturally lit to match the environment. ";
 
 export const IMAGE_GENERATION_CONCURRENCY = 4;

@@ -297,24 +297,29 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
     notes: [
       "Notas para === STORYBOARD_JSON === (JSON válido sin comentarios):",
       '- Estima el tiempo de cada frase según su cantidad de palabras (~2.3 palabras/seg) y divide el guion en ~{{approxScenes}} escenas secuenciales de 3.0 a 5.0 segundos cada una, cubriendo desde 0.0 hasta {{durationSeconds}}.0 segundos (luego se re-sincronizará automáticamente con el audio real).',
-      '- "use_character": {{characterStatus}}. Pon true solo cuando la escena requiera reacción o presencia del anfitrión; false para diagramas, objetos o escenarios.',
-      '- "image_prompt": SIEMPRE en INGLÉS, muy descriptivo, coherente con el estilo definido en FLOW_VISUAL, sin texto dentro de la imagen y dejando espacio visual libre en el tercio inferior para los subtítulos.',
+      '- "use_character": {{characterStatus}}. Tienes LIBERTAD CREATIVA total para decidir en cuántas y cuáles escenas aparece el anfitrión (true) según lo que mejor cuente la historia.',
+      '- NARRATIVA VISUAL CON SENTIDO (cuando use_character es false): PROHIBIDO generar escenas "conceptuales abstractas sin sentido" (objetos genéricos flotando o fondos vacíos) salvo que el guion pida un diagrama literal. Cada escena debe contar una historia visual concreta acorde a la frase exacta del guion: lugares reales, situaciones cotidianas o históricas, acciones específicas y objetos reales.',
+      '- PERSONAS SECUNDARIAS DEL MISMO UNIVERSO: Cuando una escena con use_character=false muestre otras personas (médicos, clientes, científicos, trabajadores, multitudes, personajes históricos), descríbelos explícitamente como personajes distintos en edad, rostro, vestimenta y rol, pero pertenecientes al MISMO UNIVERSO Y ESTÉTICA VISUAL que el personaje anfitrión (sin ser clones idénticos de él).',
+      '- "image_prompt": SIEMPRE en INGLÉS, muy descriptivo (sujeto, acción, entorno, plano/encuadre). Ten en cuenta que nuestro sistema añadirá automáticamente al final este estilo maestro obligatorio: "{{styleAnchor}}". Por lo tanto, NO contradigas ese estilo ni repitas técnicas opuestas; deja espacio visual limpio en el tercio inferior para los subtítulos y sin texto embebido.',
       '- "camera_motion": varía entre "zoom_in", "zoom_out", "pan_left", "pan_right".',
     ].join("\n"),
   },
   flow_visual: {
     schemaExample: JSON.stringify(
       {
-        styleAnchor: "Global visual art style anchor in English tailored to the topic...",
-        characterPrefix: "Character consistency integration prefix in English...",
+        styleAnchor: "{{styleAnchor}}",
+        characterPrefix:
+          "Keep the host character's facial features, hairstyle, and core identity from the reference image, rendered in the exact visual style of the scene and naturally lit to match the environment.",
       },
       null,
       2,
     ),
     promptRules: [
-      "Notas para === FLOW_VISUAL === (JSON válido sin comentarios, en INGLÉS, diseñado específicamente para la atmósfera de \"{{topic}}\"):",
-      '- "styleAnchor": Ancla de estilo global en inglés (técnica de ilustración/render, iluminación, paleta cromática, composición vertical 9:16, sin texto embebido).',
-      '- "characterPrefix": Prefijo de consistencia en inglés que describe cómo debe integrarse el personaje de referencia en las escenas donde use_character=true (si no hay personaje, déjalo breve o genérico).',
+      "Notas para === FLOW_VISUAL === (JSON válido sin comentarios, SIEMPRE en INGLÉS):",
+      '- PRIORIDAD MÁXIMA — ESTILO MAESTRO FIJO ("styleAnchor"): El estilo visual definido por el usuario para TODAS las escenas (con o sin personaje) es:',
+      '  "{{styleAnchor}}"',
+      '- NO modifiques, no reescribas ni contradigas este "styleAnchor"; devuélvelo exactamente igual para mantener coherencia visual constante en todo el video.',
+      '- "characterPrefix" (15 a 35 palabras en inglés, terminado en punto): {{characterStatus}}. Debe instruir al generador de imágenes para mantener la identidad, rostro y rasgos del personaje de referencia mientras lo adapta e integra al 100% dentro de la estética, iluminación, sombras y universo de "{{styleAnchor}}".',
     ].join("\n"),
     styleAnchor: STYLE_ANCHOR,
     characterPrefix: CHARACTER_CONSISTENCY_PREFIX,

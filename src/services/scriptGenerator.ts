@@ -1,3 +1,4 @@
+import { STYLE_ANCHOR } from "../config/styleConfig.js";
 import type {
   CameraMotion,
   Scene,
@@ -52,6 +53,7 @@ export function buildRetentionScriptPrompt(
   const customLine = options.customInstructions?.trim()
     ? `- Notas / Estilo deseado: ${options.customInstructions.trim()}`
     : "";
+  const styleAnchor = (formats.flow_visual.styleAnchor || STYLE_ANCHOR).trim();
 
   const vars = {
     topic: options.topic,
@@ -62,6 +64,7 @@ export function buildRetentionScriptPrompt(
     musicDurationSeconds,
     characterStatus,
     tone: options.tone || "deducido del tema",
+    styleAnchor,
     customInstructions: customLine,
   };
 

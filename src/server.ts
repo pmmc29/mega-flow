@@ -428,8 +428,10 @@ app.post("/api/script/import-bundle", async (req, res) => {
       await fsp.writeFile(paths.remotionStyle, bundle.remotionStyle, "utf-8");
     }
 
-    if (bundle.flowVisual && (bundle.flowVisual.styleAnchor || bundle.flowVisual.characterPrefix)) {
-      await saveProjectFormatModule(paths.root, "flow_visual", bundle.flowVisual);
+    if (bundle.flowVisual?.characterPrefix) {
+      await saveProjectFormatModule(paths.root, "flow_visual", {
+        characterPrefix: bundle.flowVisual.characterPrefix,
+      });
     }
 
     if (bundle.musicPrompt) {
