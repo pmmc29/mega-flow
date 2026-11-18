@@ -428,14 +428,31 @@ export function parseUnifiedScriptBundle(rawText: string): UnifiedScriptBundle {
     formattedStoryboard = validateAndFormatStoryboard(parsedSb);
   }
 
+  const cleanScript = extracted.clean ? sanitizeCleanScript(extracted.clean) : "";
+
   return {
-    cleanScript: extracted.clean,
+    cleanScript,
     elevenlabsScript: extracted.eleven,
     remotionStyle: formattedRemotion,
     flowVisual: parsedFlowVisual,
     musicPrompt: parsedMusicPrompt,
     storyboard: formattedStoryboard,
   };
+}
+
+function sanitizeCleanScript(raw: string): string {
+  return raw
+    .replace(/^```(?:\w+)?\s*\n?/i, "")
+    .replace(/\n?```\s*$/i, "")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/(^|\s)\*([^*\n]+)\*(?=\s|$)/g, "$1$2")
+    .replace(/^\s*(?:hook|intro|tensi[oó]n|desarrollo|cl[ií]max|cierre|cta|loop)\s*:\s*/gim, "")
+    .replace(/^\s*[-*•]\s+/gm, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export function buildMusicPrompt(
