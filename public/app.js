@@ -479,9 +479,7 @@ async function fetchStatus() {
   const aceStepStatusEl = $("#acestep-status");
   if (aceStepStatusEl) {
     if (aceStepAvailable) {
-      aceStepStatusEl.textContent = hasAudio
-        ? "ACE-Step 1.5: Conectado"
-        : "ACE-Step 1.5: Conectado · Sube locución para generar";
+      aceStepStatusEl.textContent = "ACE-Step 1.5: Conectado (listo para generar)";
     } else if (aceStepStarting) {
       aceStepStatusEl.textContent = "ACE-Step 1.5: Iniciando (ver logs en Paso 2)...";
     } else {
@@ -494,20 +492,17 @@ async function fetchStatus() {
     btnMusicPrompt.disabled = !hasScript;
     btnMusicPrompt.title = hasScript
       ? "Generar prompt para Google Flow / ACE-Step en base al guion guardado"
-      : "Primero aplica y guarda el guion y estilo 3 en 1";
+      : "Primero aplica y guarda el bloque maestro (6 en 1)";
   }
 
   const btnGenerateAceStep = $("#btn-generate-acestep");
   if (btnGenerateAceStep) {
-    btnGenerateAceStep.disabled = !hasScript || !hasAudio || !aceStepAvailable;
+    btnGenerateAceStep.disabled = !hasScript || !aceStepAvailable;
     if (!hasScript) {
-      btnGenerateAceStep.title = "Primero aplica y guarda el guion y estilo 3 en 1";
-    } else if (!hasAudio) {
-      btnGenerateAceStep.title =
-        "Primero sube el audio de ElevenLabs para igualar su duración";
+      btnGenerateAceStep.title = "Primero aplica y guarda el bloque maestro (6 en 1)";
     } else if (!aceStepAvailable) {
       btnGenerateAceStep.title =
-        "Inicia ACE-Step 1.5 localmente con: uv run acestep-api (puerto 8001)";
+        "Enciende ACE-Step 1.5 con el botón 'Iniciar ACE-Step' (Paso 2)";
     } else {
       btnGenerateAceStep.title = "Generar pista instrumental local con ACE-Step 1.5";
     }
@@ -1475,13 +1470,17 @@ function renderInputsSummaryAndVisibility(data) {
   }
   if (toggleBtn) {
     toggleBtn.textContent = forceShow4in1Cards
-      ? "Ocultar importador 4 en 1"
-      : "Mostrar importador 4 en 1";
+      ? "Ocultar importador 6 en 1"
+      : "Mostrar importador 6 en 1";
   }
 
   if (summaryCard) {
     summaryCard.classList.toggle("hidden", !showSummary);
   }
+
+  const customized = data.formats?.customized || {};
+  const hasFlowVisual = Boolean(customized.flow_visual);
+  const hasMusicPrompt = Boolean(customized.musica);
 
   const appliedChips = [];
   const pendingChips = [];
@@ -1494,6 +1493,12 @@ function renderInputsSummaryAndVisibility(data) {
 
   if (hasRemotion) appliedChips.push("Remotion JSON");
   else pendingChips.push("Remotion JSON (preset)");
+
+  if (hasFlowVisual) appliedChips.push("Flow Visual");
+  else pendingChips.push("Flow Visual (por defecto)");
+
+  if (hasMusicPrompt) appliedChips.push("Música Prompt");
+  else pendingChips.push("Música Prompt (por defecto)");
 
   if (hasStoryboard) {
     const sceneLabel =
@@ -1523,7 +1528,7 @@ function renderInputsSummaryAndVisibility(data) {
 
   if (subtitleEl) {
     subtitleEl.textContent = bundleComplete
-      ? "Bloque 4 en 1 aplicado y guardado. Las tarjetas completadas se ocultaron para mantener limpio el panel."
+      ? "Bloque maestro (6 en 1) aplicado y guardado. Las tarjetas completadas se ocultaron para mantener limpio el panel."
       : "Avance parcial guardado en este proyecto.";
   }
 
