@@ -50,13 +50,13 @@ export const AnimatedScene: React.FC<AnimatedSceneProps> = ({
   } else if (cameraMotion === "pan_left") {
     scale = 1.0 + Math.max(0.08, zoomDelta * 0.85);
     translateX = interpolate(frame, [0, safeDuration], [panDelta, -panDelta], {
-      easing: Easing.inOut(Easing.sine),
+      easing: Easing.inOut(Easing.sin),
       extrapolateRight: "clamp",
     });
   } else if (cameraMotion === "pan_right") {
     scale = 1.0 + Math.max(0.08, zoomDelta * 0.85);
     translateX = interpolate(frame, [0, safeDuration], [-panDelta, panDelta], {
-      easing: Easing.inOut(Easing.sine),
+      easing: Easing.inOut(Easing.sin),
       extrapolateRight: "clamp",
     });
   }
