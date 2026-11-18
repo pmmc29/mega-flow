@@ -48,12 +48,14 @@ export interface StoryboardFormat {
 }
 
 export interface FlowVisualFormat {
+  schemaExample: string;
   promptRules: string;
   styleAnchor: string;
   characterPrefix: string;
 }
 
 export interface MusicaFormat {
+  placeholderHint: string;
   promptRules: string;
   template: string;
   moods: Record<string, string>;
@@ -242,6 +244,14 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
     ].join("\n"),
   },
   flow_visual: {
+    schemaExample: JSON.stringify(
+      {
+        styleAnchor: "Global visual art style anchor in English tailored to the topic...",
+        characterPrefix: "Character consistency integration prefix in English...",
+      },
+      null,
+      2,
+    ),
     promptRules: [
       "Notas para === FLOW_VISUAL === (JSON válido sin comentarios, en INGLÉS, diseñado específicamente para la atmósfera de \"{{topic}}\"):",
       '- "styleAnchor": Ancla de estilo global en inglés (técnica de ilustración/render, iluminación, paleta cromática, composición vertical 9:16, sin texto embebido).',
@@ -251,6 +261,8 @@ export const DEFAULT_GLOBAL_FORMATS: ModularFormats = {
     characterPrefix: CHARACTER_CONSISTENCY_PREFIX,
   },
   musica: {
+    placeholderHint:
+      "(Prompt instrumental en inglés para ACE-Step 1.5, duración mínima ~{{musicDurationSeconds}}s, sin comillas ni JSON)",
     promptRules: [
       "Notas para === MUSICA_PROMPT === (texto plano en INGLÉS para ACE-Step 1.5, SIN JSON ni comillas):",
       '- Describe una pista instrumental de al menos ~{{musicDurationSeconds}}s (incluye margen extra sobre la duración de la voz) diseñada a la medida de "{{topic}}".',
@@ -292,6 +304,10 @@ function mergeFormats(base: ModularFormats, override?: PartialModularFormats | n
       if (key === "musica") {
         const musicPatch = patch as Partial<MusicaFormat>;
         result.musica = {
+          placeholderHint:
+            typeof musicPatch.placeholderHint === "string"
+              ? musicPatch.placeholderHint
+              : result.musica.placeholderHint,
           promptRules:
             typeof musicPatch.promptRules === "string"
               ? musicPatch.promptRules

@@ -114,25 +114,6 @@
                 Cancelar
               </button>
             </form>
-
-            <div class="studio-subtabs" role="tablist" aria-label="Vistas del proyecto activo">
-              <button
-                type="button"
-                class="studio-subtab is-active"
-                role="tab"
-                data-studio-subtab="panel"
-              >
-                Panel
-              </button>
-              <button
-                type="button"
-                class="studio-subtab"
-                role="tab"
-                data-studio-subtab="project-config"
-              >
-                Config. Proyecto
-              </button>
-            </div>
           </section>
 
           <div id="subview-panel">
@@ -143,28 +124,25 @@
                   <span class="step-label">Paso 1</span>
                   <h2 id="heading-inputs">Archivos de Entrada</h2>
                   <p class="section-desc">
-                    Carga el guion, la locución y la hoja de personaje. Cuando apliques el bloque 4 en 1,
+                    Carga el guion, la locución y la hoja de personaje. Cuando apliques el bloque maestro,
                     las tarjetas completadas se compactarán en un resumen.
                   </p>
                 </div>
                 <div class="readiness-pill" id="readiness-summary">Verificando archivos...</div>
               </div>
 
-              <!-- Resumen compacto cuando el 4 en 1 está aplicado -->
+              <!-- Resumen compacto cuando el bloque maestro está aplicado -->
               <article class="card inputs-summary-card hidden" id="inputs-summary-card">
                 <div class="inputs-summary-head">
                   <div>
                     <h3>Resumen del Proyecto</h3>
                     <p class="meta-text" id="inputs-summary-subtitle">
-                      Bloque 4 en 1 aplicado y guardado.
+                      Bloque maestro aplicado y guardado.
                     </p>
                   </div>
                   <div class="editor-actions">
                     <button type="button" class="btn btn-ghost btn-xs" id="btn-toggle-4in1-cards">
-                      Mostrar importador 4 en 1
-                    </button>
-                    <button type="button" class="btn btn-secondary btn-xs" id="btn-goto-project-config">
-                      Config. Proyecto
+                      Mostrar importador
                     </button>
                   </div>
                 </div>
@@ -681,26 +659,6 @@
         </div>
       </section>
           </div><!-- /#subview-panel -->
-
-          <!-- Config. Proyecto activo -->
-          <div id="subview-project-config" class="hidden">
-            <section class="section-block">
-              <div class="section-header">
-                <div>
-                  <span class="step-label">Proyecto Activo</span>
-                  <h2>Configuración Modular del Proyecto</h2>
-                  <p class="section-desc">
-                    Revisa las secciones aplicadas en este video, limpia una sección específica o ajusta
-                    su formato solo para este proyecto (si no lo editas, hereda de Config. Global).
-                  </p>
-                </div>
-                <button type="button" class="btn btn-ghost btn-sm" id="btn-reset-all-project-formats">
-                  Usar todo de Global
-                </button>
-              </div>
-              <div class="config-modules-list" id="project-config-list"></div>
-            </section>
-          </div>
         </div><!-- /#view-studio -->
 
         <!-- Config. Global -->
@@ -711,8 +669,8 @@
                 <span class="step-label">Global</span>
                 <h2>Configuración Global de Formatos</h2>
                 <p class="section-desc">
-                  Define la plantilla base de cada módulo. Cuando modifiques cualquier módulo aquí
-                  (Guion Limpio, ElevenLabs, Remotion o Storyboard), el Prompt Maestro 4 en 1 se
+                  Define el formato, esquema y notas de cada módulo. Cuando modifiques cualquier módulo aquí,
+                  el Prompt Maestro se actualizará automáticamente para todos los proyectos.
                   actualizará automáticamente.
                 </p>
               </div>

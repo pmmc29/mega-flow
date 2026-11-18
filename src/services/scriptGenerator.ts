@@ -104,21 +104,14 @@ export function buildRetentionScriptPrompt(
   if (activeSet.has("flow_visual")) {
     parts.push(
       "=== FLOW_VISUAL ===",
-      JSON.stringify(
-        {
-          styleAnchor: "Global visual art style anchor in English tailored to the topic...",
-          characterPrefix: "Character consistency integration prefix in English...",
-        },
-        null,
-        2,
-      ),
+      applyTemplateVars(formats.flow_visual.schemaExample, vars),
       "",
     );
   }
   if (activeSet.has("musica")) {
     parts.push(
       "=== MUSICA_PROMPT ===",
-      `(Prompt instrumental en inglés para ACE-Step 1.5, duración mínima ~${musicDurationSeconds}s, sin comillas ni JSON)`,
+      applyTemplateVars(formats.musica.placeholderHint, vars),
       "",
     );
   }

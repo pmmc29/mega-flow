@@ -1419,30 +1419,11 @@ function switchMainNav(target) {
   $("#view-global-config")?.classList.toggle("hidden", target !== "global-config");
 }
 
-function switchStudioSubtab(target) {
-  $$("[data-studio-subtab]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.studioSubtab === target);
-  });
-  $("#subview-panel")?.classList.toggle("hidden", target !== "panel");
-  $("#subview-project-config")?.classList.toggle("hidden", target !== "project-config");
-}
-
 function setupNavigation() {
   $$("[data-main-nav]").forEach((btn) => {
     btn.addEventListener("click", () => {
       switchMainNav(btn.dataset.mainNav);
     });
-  });
-
-  $$("[data-studio-subtab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      switchStudioSubtab(btn.dataset.studioSubtab);
-    });
-  });
-
-  $("#btn-goto-project-config")?.addEventListener("click", () => {
-    switchMainNav("studio");
-    switchStudioSubtab("project-config");
   });
 
   $("#btn-toggle-4in1-cards")?.addEventListener("click", () => {
@@ -1584,13 +1565,15 @@ const MODULE_FIELD_SPECS = {
     { key: "notes", label: "Notas / Reglas para Storyboard", rows: 5 },
   ],
   flow_visual: [
-    { key: "promptRules", label: "Instrucciones en Prompt Maestro (=== FLOW_VISUAL ===)", rows: 4 },
-    { key: "styleAnchor", label: "Ancla de Estilo Visual (generado/actual)", rows: 3 },
-    { key: "characterPrefix", label: "Prefijo de Consistencia de Personaje (generado/actual)", rows: 2 },
+    { key: "schemaExample", label: "Esquema JSON en Prompt Maestro (=== FLOW_VISUAL ===)", rows: 4 },
+    { key: "promptRules", label: "Notas / Reglas para === FLOW_VISUAL ===", rows: 4 },
+    { key: "styleAnchor", label: "Ancla de Estilo Visual por defecto", rows: 3 },
+    { key: "characterPrefix", label: "Prefijo de Consistencia de Personaje por defecto", rows: 2 },
   ],
   musica: [
-    { key: "promptRules", label: "Instrucciones en Prompt Maestro (=== MUSICA_PROMPT ===)", rows: 4 },
-    { key: "template", label: "Prompt Musical (generado/actual)", rows: 4 },
+    { key: "placeholderHint", label: "Indicador en Prompt Maestro (=== MUSICA_PROMPT ===)", rows: 2 },
+    { key: "promptRules", label: "Notas / Reglas para === MUSICA_PROMPT ===", rows: 4 },
+    { key: "template", label: "Plantilla de Prompt Musical por defecto", rows: 4 },
     { key: "moodsJson", label: "Moods por Tono (respaldo JSON)", rows: 6 },
   ],
 };
@@ -1695,50 +1678,6 @@ function renderModularConfigs(data, force = false) {
   const formatsState = data.formats;
   if (!formatsState || modules.length === 0) return;
 
-  const projectList = $("#project-config-list");
-  if (projectList && (force || !isEditingInside(projectList))) {
-    projectList.innerHTML = modules
-      .map((m) => {
-        const isOpen = openProjectFormatModules.has(m.key);
-        const isCustom = Boolean(formatsState.customized?.[m.key]);
-        const sectionStatus = getProjectSectionStatus(m.key, data);
-        const effectiveObj = formatsState.effective?.[m.key] || {};
-
-        return `
-          <article class="card config-module-card" data-module-card="${escHtml(m.key)}">
-            <div class="config-module-head">
-              <div>
-                <div class="config-module-title-row">
-                  <h3>${escHtml(m.label)}</h3>
-                  ${
-                    m.hasProjectData
-                      ? `<span class="summary-chip ${sectionStatus.applied ? "is-applied" : ""}">${escHtml(sectionStatus.label)}</span>`
-                      : ""
-                  }
-                  <span class="badge ${isCustom ? "badge-required" : "badge-recommended"}">
-                    ${isCustom ? "Personalizado" : "Heredado de Global"}
-                  </span>
-                </div>
-                <p class="card-help">${escHtml(m.description)}</p>
-              </div>
-              <div class="config-module-actions">
-                ${
-                  m.hasProjectData && sectionStatus.applied
-                    ? `<button type="button" class="btn btn-ghost btn-xs danger-text" data-clean-section="${escHtml(m.key)}">Limpiar</button>`
-                    : ""
-                }
-                <button type="button" class="btn btn-secondary btn-xs" data-toggle-format="${escHtml(m.key)}" data-config-scope="project">
-                  ${isOpen ? "Ocultar Formato" : "Formato"}
-                </button>
-              </div>
-            </div>
-            ${isOpen ? buildModuleEditorHtml(m, effectiveObj, "project") : ""}
-          </article>
-        `;
-      })
-      .join("");
-  }
-
   const globalList = $("#global-config-list");
   if (globalList && (force || !isEditingInside(globalList))) {
     globalList.innerHTML = modules
@@ -1788,10 +1727,8 @@ function setupModularConfigHandlers() {
     const toggleBtn = event.target.closest("[data-toggle-format]");
     if (toggleBtn) {
       const moduleKey = toggleBtn.getAttribute("data-toggle-format");
-      const scope = toggleBtn.getAttribute("data-config-scope");
-      const set = scope === "project" ? openProjectFormatModules : openGlobalFormatModules;
-      if (set.has(moduleKey)) set.delete(moduleKey);
-      else set.add(moduleKey);
+      if (openGlobalFormatModules.has(moduleKey)) openGlobalFormatModules.delete(moduleKey);
+      else openGlobalFormatModules.add(moduleKey);
       if (latestStatus) renderModularConfigs(latestStatus, true);
       return;
     }
@@ -1799,7 +1736,6 @@ function setupModularConfigHandlers() {
     const saveBtn = event.target.closest("[data-config-save]");
     if (saveBtn) {
       const moduleKey = saveBtn.getAttribute("data-config-save");
-      const scope = saveBtn.getAttribute("data-config-scope");
       const cardEl = saveBtn.closest("[data-module-card]");
       if (!moduleKey || !cardEl) return;
 
@@ -1813,11 +1749,7 @@ function setupModularConfigHandlers() {
 
       saveBtn.disabled = true;
       try {
-        const url =
-          scope === "project"
-            ? `/api/config/project/${moduleKey}`
-            : `/api/config/global/${moduleKey}`;
-        const res = await fetch(url, {
+        const res = await fetch(`/api/config/global/${moduleKey}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -1827,11 +1759,7 @@ function setupModularConfigHandlers() {
           showToast(json.error || "No se pudo guardar el formato", true);
           return;
         }
-        showToast(
-          scope === "project"
-            ? "Formato guardado en este proyecto"
-            : "Formato global actualizado (el Prompt Maestro usará este cambio)",
-        );
+        showToast("Formato global actualizado (el Prompt Maestro usará este cambio)");
         await fetchStatus();
         if (latestStatus) renderModularConfigs(latestStatus, true);
       } finally {
@@ -1843,10 +1771,7 @@ function setupModularConfigHandlers() {
     const resetBtn = event.target.closest("[data-config-reset]");
     if (resetBtn) {
       const moduleKey = resetBtn.getAttribute("data-config-reset");
-      const scope = resetBtn.getAttribute("data-config-scope");
-      const url =
-        scope === "project" ? "/api/config/project/reset" : "/api/config/global/reset";
-      const res = await fetch(url, {
+      const res = await fetch("/api/config/global/reset", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ moduleKey }),
@@ -1855,45 +1780,9 @@ function setupModularConfigHandlers() {
         showToast("No se pudo restaurar el módulo", true);
         return;
       }
-      showToast(
-        scope === "project" ? "Sección restaurada a Config. Global" : "Módulo global restaurado",
-      );
+      showToast("Módulo global restaurado");
       await fetchStatus();
       if (latestStatus) renderModularConfigs(latestStatus, true);
-      return;
-    }
-
-    const cleanBtn = event.target.closest("[data-clean-section]");
-    if (cleanBtn) {
-      const sectionKey = cleanBtn.getAttribute("data-clean-section");
-      if (!sectionKey) return;
-      cleanBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/project/section/${sectionKey}`, { method: "DELETE" });
-        const json = await res.json();
-        if (!res.ok) {
-          showToast(json.error || "No se pudo limpiar la sección", true);
-          return;
-        }
-        bundleDirty = false;
-        showToast("Sección limpiada del proyecto");
-        await fetchStatus();
-        if (latestStatus) renderModularConfigs(latestStatus, true);
-      } finally {
-        cleanBtn.disabled = false;
-      }
-    }
-  });
-
-  $("#btn-reset-all-project-formats")?.addEventListener("click", async () => {
-    const res = await fetch("/api/config/project/reset", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({}),
-    });
-    if (res.ok) {
-      showToast("Todos los formatos del proyecto ahora heredan de Config. Global");
-      await fetchStatus();
     }
   });
 
