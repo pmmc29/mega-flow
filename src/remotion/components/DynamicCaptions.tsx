@@ -124,6 +124,10 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
     () => groupWordsSmart(words, wordsPerGroup),
     [words, wordsPerGroup],
   );
+  const outlineShadow = React.useMemo(
+    () => buildOutlineShadow(captionStrokeWidth),
+    [captionStrokeWidth],
+  );
   const activeGroup = groups.find(
     (g) => currentTime >= g.start - 0.05 && currentTime <= g.end + 0.12,
   );
@@ -166,10 +170,6 @@ export const DynamicCaptions: React.FC<DynamicCaptionsProps> = ({
   const isKineticBox = captionStyle === "kinetic_box";
   const safeFontSize = Math.max(44, Math.min(82, Math.round(captionSize)));
   const fontFamily = FONT_FAMILIES[captionFont] ?? FONT_FAMILIES.sans_bold;
-  const outlineShadow = React.useMemo(
-    () => buildOutlineShadow(captionStrokeWidth),
-    [captionStrokeWidth],
-  );
 
   return (
     <AbsoluteFill style={{ pointerEvents: "none" }}>
